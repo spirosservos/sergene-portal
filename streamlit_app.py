@@ -16,7 +16,6 @@ st.set_page_config(
 )
 
 # --- 1. AUTHENTICATION SYSTEM (SECURITY UPGRADE) ---
-# Best Practice: Use st.secrets to hide passwords from GitHub
 def check_password():
     if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = False
@@ -30,11 +29,9 @@ def check_password():
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
         
-        # We try to get users from secrets, fallback to a local dict for testing only
         if "users" in st.secrets:
             VALID_USERS = st.secrets["users"]
         else:
-            # ONLY for local testing. This will be hidden on the web.
             VALID_USERS = {"admin": "admin123"}
 
         if st.button("Log In"):
@@ -74,27 +71,20 @@ COLUMN_ORDER_PRIORITY = [
     "Summary", "Source"
 ]
 
-# --- DATA LOADING (SECURITY UPGRADE) ---
+# --- DATA LOADING ---
 @st.cache_data(ttl=3600) 
 def load_data():
-    """
-    To protect data, we prefer Google Sheets over local files on GitHub.
-    If 'gsheets_url' exists in secrets, we use it. Otherwise, we look for Excel.
-    """
     try:
         if "gsheets_url" in st.secrets:
-            # Directly read from a private Google Sheet CSV export link
             df = pd.read_csv(st.secrets["gsheets_url"])
         else:
             file_path = "Biotech_Deals_Database.xlsx"
             if not os.path.exists(file_path): return pd.DataFrame()
             df = pd.read_excel(file_path)
         
-        # 1. Date Handling
         df['Date_Obj'] = pd.to_datetime(df['Date'], errors='coerce')
         df['Filter_Date'] = df['Date_Obj'].dt.date
         
-        # 2. Rename Columns
         rename_mapping = {
             "Lead Organization": "Partner A",
             "Partner": "Partner B",
@@ -106,7 +96,6 @@ def load_data():
         }
         df = df.rename(columns=rename_mapping)
         
-        # 3. Clean Text Columns
         text_cols = ['Title', 'Summary', 'Partner A', 'Partner B', 'Diseases', 'Type', 'Source']
         for col in text_cols:
             if col in df.columns:
@@ -114,7 +103,6 @@ def load_data():
                 if col in ['Partner A', 'Partner B']:
                     df[col] = df[col].apply(lambda x: x.title() if x.islower() else x)
 
-        # 4. Clean Modalities & Financials
         all_cols = list(df.columns)
         for col in all_cols:
             if col not in ['Date', 'Date_Obj', 'Filter_Date']:
@@ -169,14 +157,23 @@ search_query = st.text_input("", placeholder="🔍 Search database...", label_vi
 # --- FILTERING & DE-DUPLICATION ---
 if not df_raw.empty:
     df = df_raw.copy()
+    
+    # 1. Date Filtering
     df = df[(df['Filter_Date'] >= start_date) & (df['Filter_Date'] <= end_date)]
 
+    # 2. Modality Filtering (FIXED)
+    if selected_mods:
+        mod_mask = df[selected_mods].apply(lambda x: x.astype(str).str.strip() != "").any(axis=1)
+        df = df[mod_mask]
+
+    # 3. Search Query
     if search_query:
         q = search_query.lower()
         search_cols = [c for c in ['Title', 'Summary', 'Partner A', 'Partner B', 'Diseases'] if c in df.columns]
         mask = df[search_cols].apply(lambda x: x.str.lower().str.contains(q, na=False)).any(axis=1)
         df = df[mask]
 
+    # 4. Consolidation
     if consolidate and not df.empty:
         df = df.sort_values('Score', ascending=False)
         agg_funcs = {col: 'first' for col in df.columns}
@@ -276,36 +273,28 @@ if not df_raw.empty:
             
             c1, c2 = st.columns(2)
             with c1:
-                # Volume Trend
                 volume_data = df.groupby(df['Date_Obj'].dt.to_period('M')).size().reset_index(name='Deals')
                 volume_data['Date_Obj'] = volume_data['Date_Obj'].dt.to_timestamp()
-                fig_trend = px.line(volume_data, x='Date_Obj', y='Deals', title="Transaction Volume Trend (Monthly)",
-                                    line_shape='spline')
+                fig_trend = px.line(volume_data, x='Date_Obj', y='Deals', title="Transaction Volume Trend (Monthly)", line_shape='spline')
                 st.plotly_chart(fig_trend, use_container_width=True)
 
-                # Top Partners
                 valid_orgs_plot = df[df['Partner A'] != ""]['Partner A']
                 if not valid_orgs_plot.empty:
                     top_partners = valid_orgs_plot.value_counts().head(10).reset_index()
                     top_partners.columns = ['Organization', 'Count']
-                    fig_partners = px.bar(top_partners, x='Count', y='Organization', orientation='h', 
-                                          title="Top 10 Active Strategic Partners",
-                                          color='Count', color_continuous_scale='Blues')
+                    fig_partners = px.bar(top_partners, x='Count', y='Organization', orientation='h', title="Top 10 Active Strategic Partners", color='Count', color_continuous_scale='Blues')
                     fig_partners.update_layout(yaxis={'categoryorder':'total ascending'})
                     st.plotly_chart(fig_partners, use_container_width=True)
 
             with c2:
-                # Type Distribution
                 if 'Type' in df.columns:
                     valid_types_plot = df[df['Type'] != ""]['Type']
                     if not valid_types_plot.empty:
                         type_dist = valid_types_plot.value_counts().reset_index()
                         type_dist.columns = ['Type', 'Count']
-                        fig_type = px.pie(type_dist, values='Count', names='Type', title="Transaction Type Distribution",
-                                          hole=0.4)
+                        fig_type = px.pie(type_dist, values='Count', names='Type', title="Transaction Type Distribution", hole=0.4)
                         st.plotly_chart(fig_type, use_container_width=True)
 
-                # Modality Prevalence
                 mod_counts = []
                 for mod in MODALITIES:
                     if mod in df.columns:
@@ -314,8 +303,7 @@ if not df_raw.empty:
                 
                 if mod_counts:
                     mod_df = pd.DataFrame(mod_counts).sort_values('Count', ascending=False)
-                    fig_mod = px.bar(mod_df, x='Modality', y='Count', title="Prevalence of Modal Technologies",
-                                     color='Count', color_continuous_scale='Viridis')
+                    fig_mod = px.bar(mod_df, x='Modality', y='Count', title="Prevalence of Modal Technologies", color='Count', color_continuous_scale='Viridis')
                     st.plotly_chart(fig_mod, use_container_width=True)
         else:
             st.warning("Please adjust filters to see visualizations.")
