@@ -56,12 +56,10 @@ def load_data():
         }
         df = df.rename(columns=rename_mapping)
         
-        # Clean text columns and apply Mobile-Friendly Zero-Width Space fix
         text_cols = ['Title', 'Summary', 'Partner A', 'Partner B', 'Diseases', 'Type', 'Source', 'Deal Value', 'Upfront', 'Milestones', 'Royalties']
         for col in text_cols:
             if col in df.columns:
                 df[col] = df[col].fillna("").astype(str).str.strip()
-                # Zero-width space fix for older iOS math-mode crash
                 df[col] = df[col].apply(lambda x: x.replace('$', '$' + '\u200b'))
                 
                 if col in ['Partner A', 'Partner B']:
@@ -76,7 +74,6 @@ def load_data():
     except Exception as e:
         return pd.DataFrame()
 
-# Pre-load data for both login and main app
 df_raw = load_data()
 
 # --- AUTHENTICATION SYSTEM ---
@@ -87,15 +84,11 @@ def check_password():
     if st.session_state["authenticated"]:
         return True
 
-    # --- LOGIN PAGE UI ---
     st.markdown("<h1 style='text-align: center; color: #1e40af;'>🧬 SerGene Bio | Intelligence Portal</h1>", unsafe_allow_html=True)
     
-    # 1. PUBLIC PREVIEW SECTION (REDUCED TO 10 DEALS)
     if not df_raw.empty:
         st.markdown("### 🔍 Latest Market Intelligence (Public Preview)")
-        # Now showing top 10 instead of 15
         preview_df = df_raw.sort_values('Date_Obj', ascending=False).head(10).copy()
-        # Hide sensitive columns for public view
         cols_to_show = ["Date", "Title", "Partner A", "Partner B", "Deal Value"]
         existing_cols = [c for c in cols_to_show if c in preview_df.columns]
         st.dataframe(preview_df[existing_cols], hide_index=True, use_container_width=True)
@@ -103,7 +96,6 @@ def check_password():
 
     st.divider()
 
-    # 2. LOGIN FORM
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.subheader("🔒 Secure Access")
@@ -129,14 +121,39 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS (SECURITY UPGRADE) ---
 st.markdown("""
 <style>
     .block-container { padding-top: 1rem; padding-bottom: 2rem; }
     [data-testid="stMetric"] { background-color: #f8f9fa; border: 1px solid #e0e0e0; padding: 15px; border-radius: 10px; }
     thead tr th { font-weight: 800 !important; background-color: #f1f5f9 !important; }
     .stDownloadButton button { background-color: #1e40af !important; color: white !important; border-radius: 8px; width: 100%; }
+    
+    /* 1. HIDE BUILT-IN TOOLBAR (Prevents 'Download All' bypass) */
+    [data-testid="stElementToolbar"] {
+        display: none !important;
+    }
+
+    /* 2. BLOCK COPY-PASTE FROM DATA CONTAINERS */
+    /* Applied to the dataframes and tables to protect intellectual property */
+    .stDataFrame, .stTable, [data-testid="stTable"], [data-testid="stDataFrame"] {
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+    }
+
+    /* Prevent context menu (right click) on the whole app for added friction */
+    /* Note: Determined users can bypass this, but it stops casual copying */
+    #root {
+        -webkit-touch-callout: none;
+    }
 </style>
+
+<script>
+// JavaScript to disable right-click on the main app area
+document.addEventListener('contextmenu', event => event.preventDefault());
+</script>
 """, unsafe_allow_html=True)
 
 # --- SIDEBAR & FILTERS ---
@@ -181,7 +198,7 @@ search_query = st.text_input("", placeholder="🔍 Search full database...", lab
 if not df_raw.empty:
     df = df_raw.copy()
     
-    # Apply Filtering
+    # Filtering
     df = df[(df['Filter_Date'] >= start_date) & (df['Filter_Date'] <= end_date)]
     if selected_mods:
         mod_mask = df[selected_mods].apply(lambda x: x.astype(str).str.strip() != "").any(axis=1)
@@ -204,7 +221,6 @@ if not df_raw.empty:
     # --- RESTRICTED DOWNLOAD LOGIC (STRICT 15 DEALS) ---
     st.sidebar.divider()
     st.sidebar.subheader("📥 Export Data")
-    # Prepare strictly top 15 results for download based on filtered set
     download_df = df.sort_values(by='Date_Obj', ascending=False).head(15).copy()
     csv_data = download_df.to_csv(index=False).encode('utf-8')
     
@@ -216,7 +232,7 @@ if not df_raw.empty:
         help="Standard access allows exporting only the 15 most recent records from your current selection."
     )
 
-    # --- TOP METRICS ---
+    # Metrics
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Database Matches", len(df))
     if 'Score' in df.columns:
@@ -231,7 +247,7 @@ if not df_raw.empty:
 
     st.divider()
 
-    # --- TABS ---
+    # Tabs
     tab_data, tab_charts = st.tabs(["📊 Data Explorer", "📈 Visual Analytics"])
 
     with tab_data:
@@ -261,12 +277,10 @@ if not df_raw.empty:
         if not df.empty:
             st.subheader("🕵️ Transaction Timeline (Full View)")
             timeline_df = df.copy().sort_values('Date_Obj')
-            
             def wrap_summary(text, width=50):
                 if not text: return ""
                 short_text = text[:300] + "..." if len(text) > 300 else text
                 return "<br>".join(textwrap.wrap(short_text, width=width))
-                
             timeline_df['Hover_Summary'] = timeline_df['Summary'].apply(lambda x: wrap_summary(x))
             
             fig_timeline = px.scatter(
