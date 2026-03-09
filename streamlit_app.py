@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 1. AUTHENTICATION SYSTEM (SECURITY UPGRADE) ---
+# --- 1. AUTHENTICATION SYSTEM ---
 def check_password():
     if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = False
@@ -52,6 +52,10 @@ st.markdown("""
     .block-container { padding-top: 1rem; padding-bottom: 2rem; }
     [data-testid="stMetric"] { background-color: #f8f9fa; border: 1px solid #e0e0e0; padding: 15px; border-radius: 10px; }
     thead tr th { font-weight: 800 !important; background-color: #f1f5f9 !important; }
+    @media (max-width: 640px) {
+        .stMetric { padding: 10px; }
+        h1 { font-size: 1.2rem !important; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -71,8 +75,9 @@ COLUMN_ORDER_PRIORITY = [
     "Summary", "Source"
 ]
 
-# --- DATA LOADING ---
-@st.cache_data(ttl=3600) 
+# --- DATA LOADING (UPDATED CACHE) ---
+# We changed ttl from 3600 (1 hour) to 600 (10 mins) so your changes show up faster!
+@st.cache_data(ttl=600) 
 def load_data():
     try:
         if "gsheets_url" in st.secrets:
@@ -96,10 +101,13 @@ def load_data():
         }
         df = df.rename(columns=rename_mapping)
         
-        text_cols = ['Title', 'Summary', 'Partner A', 'Partner B', 'Diseases', 'Type', 'Source']
+        # Mobile Fix: Escape $ signs to prevent regex errors on older iOS
+        text_cols = ['Title', 'Summary', 'Partner A', 'Partner B', 'Diseases', 'Type', 'Source', 'Deal Value', 'Upfront', 'Milestones', 'Royalties']
         for col in text_cols:
             if col in df.columns:
                 df[col] = df[col].fillna("").astype(str).str.strip()
+                df[col] = df[col].apply(lambda x: x.replace('$', r'\$'))
+                
                 if col in ['Partner A', 'Partner B']:
                     df[col] = df[col].apply(lambda x: x.title() if x.islower() else x)
 
@@ -131,9 +139,9 @@ if not df_raw.empty:
     consolidate = st.sidebar.toggle("Consolidate Reports", value=True)
 
     with st.sidebar.expander("📅 Date Range", expanded=True):
+        valid_dates = df_raw.loc[df_raw['Filter_Date'].notnull(), 'Filter_Date']
         UI_MIN = date(1980, 1, 1)
         UI_MAX = date(2030, 12, 31)
-        valid_dates = df_raw.loc[df_raw['Filter_Date'].notnull(), 'Filter_Date']
         default_start = valid_dates.min() if not valid_dates.empty else date(2023, 1, 1)
         default_end = valid_dates.max() if not valid_dates.empty else date.today()
         start_date = st.date_input("From", default_start, min_value=UI_MIN, max_value=UI_MAX)
@@ -154,26 +162,20 @@ else:
 st.title("🧬 Deal Intelligence Portal")
 search_query = st.text_input("", placeholder="🔍 Search database...", label_visibility="collapsed")
 
-# --- FILTERING & DE-DUPLICATION ---
 if not df_raw.empty:
     df = df_raw.copy()
-    
-    # 1. Date Filtering
     df = df[(df['Filter_Date'] >= start_date) & (df['Filter_Date'] <= end_date)]
 
-    # 2. Modality Filtering (FIXED)
     if selected_mods:
         mod_mask = df[selected_mods].apply(lambda x: x.astype(str).str.strip() != "").any(axis=1)
         df = df[mod_mask]
 
-    # 3. Search Query
     if search_query:
         q = search_query.lower()
         search_cols = [c for c in ['Title', 'Summary', 'Partner A', 'Partner B', 'Diseases'] if c in df.columns]
         mask = df[search_cols].apply(lambda x: x.str.lower().str.contains(q, na=False)).any(axis=1)
         df = df[mask]
 
-    # 4. Consolidation
     if consolidate and not df.empty:
         df = df.sort_values('Score', ascending=False)
         agg_funcs = {col: 'first' for col in df.columns}
@@ -212,7 +214,7 @@ if not df_raw.empty:
             if view_mode == "Interactive Grid":
                 st.dataframe(df[final_cols], column_config={
                     "Date": st.column_config.DateColumn("Date", format="YYYY-MM-DD"),
-                    "Source": st.column_config.LinkColumn("Source", display_text="Read", width="small"),
+                    "Source": st.column_config.LinkColumn("Source", display_text="Read"),
                 }, hide_index=True, use_container_width=True)
             else:
                 def make_links(row):
@@ -252,9 +254,9 @@ if not df_raw.empty:
                     "Score": False 
                 },
                 labels={
-                    "Date_Obj": "Deal Date", 
-                    "Partner A": "Lead Org", 
-                    "Partner B": "Partner", 
+                    "Date_Obj": "Date", 
+                    "Partner A": "Org A", 
+                    "Partner B": "Org B", 
                     "Diseases": "Diseases",
                     "Deal Value": "Value",
                     "Hover_Summary": "Summary"
@@ -275,26 +277,10 @@ if not df_raw.empty:
             with c1:
                 volume_data = df.groupby(df['Date_Obj'].dt.to_period('M')).size().reset_index(name='Deals')
                 volume_data['Date_Obj'] = volume_data['Date_Obj'].dt.to_timestamp()
-                fig_trend = px.line(volume_data, x='Date_Obj', y='Deals', title="Transaction Volume Trend (Monthly)", line_shape='spline')
+                fig_trend = px.line(volume_data, x='Date_Obj', y='Deals', title="Monthly Volume Trend", line_shape='spline')
                 st.plotly_chart(fig_trend, use_container_width=True)
 
-                valid_orgs_plot = df[df['Partner A'] != ""]['Partner A']
-                if not valid_orgs_plot.empty:
-                    top_partners = valid_orgs_plot.value_counts().head(10).reset_index()
-                    top_partners.columns = ['Organization', 'Count']
-                    fig_partners = px.bar(top_partners, x='Count', y='Organization', orientation='h', title="Top 10 Active Strategic Partners", color='Count', color_continuous_scale='Blues')
-                    fig_partners.update_layout(yaxis={'categoryorder':'total ascending'})
-                    st.plotly_chart(fig_partners, use_container_width=True)
-
             with c2:
-                if 'Type' in df.columns:
-                    valid_types_plot = df[df['Type'] != ""]['Type']
-                    if not valid_types_plot.empty:
-                        type_dist = valid_types_plot.value_counts().reset_index()
-                        type_dist.columns = ['Type', 'Count']
-                        fig_type = px.pie(type_dist, values='Count', names='Type', title="Transaction Type Distribution", hole=0.4)
-                        st.plotly_chart(fig_type, use_container_width=True)
-
                 mod_counts = []
                 for mod in MODALITIES:
                     if mod in df.columns:
@@ -303,7 +289,7 @@ if not df_raw.empty:
                 
                 if mod_counts:
                     mod_df = pd.DataFrame(mod_counts).sort_values('Count', ascending=False)
-                    fig_mod = px.bar(mod_df, x='Modality', y='Count', title="Prevalence of Modal Technologies", color='Count', color_continuous_scale='Viridis')
+                    fig_mod = px.bar(mod_df, x='Modality', y='Count', title="Tech Prevalence", color='Count', color_continuous_scale='Viridis')
                     st.plotly_chart(fig_mod, use_container_width=True)
         else:
             st.warning("Please adjust filters to see visualizations.")
