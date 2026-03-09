@@ -90,10 +90,11 @@ def check_password():
     # --- LOGIN PAGE UI ---
     st.markdown("<h1 style='text-align: center; color: #1e40af;'>🧬 SerGene Bio | Intelligence Portal</h1>", unsafe_allow_html=True)
     
-    # 1. PUBLIC PREVIEW SECTION
+    # 1. PUBLIC PREVIEW SECTION (REDUCED TO 10 DEALS)
     if not df_raw.empty:
         st.markdown("### 🔍 Latest Market Intelligence (Public Preview)")
-        preview_df = df_raw.sort_values('Date_Obj', ascending=False).head(15).copy()
+        # Now showing top 10 instead of 15
+        preview_df = df_raw.sort_values('Date_Obj', ascending=False).head(10).copy()
         # Hide sensitive columns for public view
         cols_to_show = ["Date", "Title", "Partner A", "Partner B", "Deal Value"]
         existing_cols = [c for c in cols_to_show if c in preview_df.columns]
@@ -200,10 +201,10 @@ if not df_raw.empty:
             agg_funcs['Source'] = 'first'
         df = df.groupby(['Partner A', 'Partner B', 'Filter_Date'], as_index=False).agg(agg_funcs)
 
-    # --- RESTRICTED DOWNLOAD LOGIC ---
+    # --- RESTRICTED DOWNLOAD LOGIC (STRICT 15 DEALS) ---
     st.sidebar.divider()
     st.sidebar.subheader("📥 Export Data")
-    # Prepare top 15 results for download
+    # Prepare strictly top 15 results for download based on filtered set
     download_df = df.sort_values(by='Date_Obj', ascending=False).head(15).copy()
     csv_data = download_df.to_csv(index=False).encode('utf-8')
     
@@ -212,7 +213,7 @@ if not df_raw.empty:
         data=csv_data,
         file_name=f"SerGene_Deals_Export_{date.today()}.csv",
         mime="text/csv",
-        help="Free/Standard access allows exporting the top 15 records from your current selection."
+        help="Standard access allows exporting only the 15 most recent records from your current selection."
     )
 
     # --- TOP METRICS ---
