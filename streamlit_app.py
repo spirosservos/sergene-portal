@@ -31,6 +31,17 @@ COLUMN_ORDER_PRIORITY = [
     "Summary", "Source"
 ]
 
+# Brand Colors
+SERGENE_BLUE = "#1A3D7C"
+DISEASE_BROWN = "#8B4513"
+
+# --- HELPER FOR STYLED TEXT ---
+def color_text(text, color, bold=True):
+    if not text or text == "" or text == "None":
+        return text
+    weight = "font-weight: 600;" if bold else ""
+    return f'<span style="color: {color}; {weight}">{text}</span>'
+
 # --- DATA LOADING ---
 @st.cache_data(ttl=600) 
 def load_data():
@@ -60,6 +71,7 @@ def load_data():
         for col in text_cols:
             if col in df.columns:
                 df[col] = df[col].fillna("").astype(str).str.strip()
+                # Zero-width space fix for older iOS math-mode crash
                 df[col] = df[col].apply(lambda x: x.replace('$', '$' + '\u200b'))
                 
                 if col in ['Partner A', 'Partner B']:
@@ -84,14 +96,22 @@ def check_password():
     if st.session_state["authenticated"]:
         return True
 
-    st.markdown("<h1 style='text-align: center; color: #1e40af;'>🧬 SerGene Bio | Intelligence Portal</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align: center; color: {SERGENE_BLUE};'>🧬 SerGene Bio | Intelligence Portal</h1>", unsafe_allow_html=True)
     
     if not df_raw.empty:
         st.markdown("### 🔍 Latest Market Intelligence (Public Preview)")
         preview_df = df_raw.sort_values('Date_Obj', ascending=False).head(10).copy()
+        
+        # Apply branding to public preview table (HTML style)
+        if "Partner A" in preview_df.columns:
+            preview_df["Partner A"] = preview_df["Partner A"].apply(lambda x: color_text(x, SERGENE_BLUE))
+        if "Partner B" in preview_df.columns:
+            preview_df["Partner B"] = preview_df["Partner B"].apply(lambda x: color_text(x, SERGENE_BLUE))
+        
         cols_to_show = ["Date", "Title", "Partner A", "Partner B", "Deal Value"]
         existing_cols = [c for c in cols_to_show if c in preview_df.columns]
-        st.dataframe(preview_df[existing_cols], hide_index=True, use_container_width=True)
+        
+        st.markdown(preview_df[existing_cols].to_html(escape=False, index=False), unsafe_allow_html=True)
         st.info("💡 To access full summaries, source links, and historical data, please log in below.")
 
     st.divider()
@@ -121,44 +141,36 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- CUSTOM CSS (Surgical Security Upgrade) ---
-st.markdown("""
+# --- CUSTOM CSS ---
+st.markdown(f"""
 <style>
-    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
-    [data-testid="stMetric"] { background-color: #f8f9fa; border: 1px solid #e0e0e0; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; }
-    thead tr th { font-weight: 800 !important; background-color: #f1f5f9 !important; }
-    .stDownloadButton button { background-color: #1e40af !important; color: white !important; border-radius: 8px; width: 100%; }
+    .block-container {{ padding-top: 1rem; padding-bottom: 2rem; }}
+    [data-testid="stMetric"] {{ background-color: #f8f9fa; border: 1px solid #e2e8f0; padding: 15px; border-radius: 10px; }}
+    thead tr th {{ font-weight: 800 !important; background-color: #f1f5f9 !important; color: {SERGENE_BLUE} !important; }}
+    .stDownloadButton button {{ background-color: {SERGENE_BLUE} !important; color: white !important; border-radius: 8px; width: 100%; }}
     
-    /* 1. SURGICAL FIX: Hide ONLY the download button in the toolbar */
-    /* This allows the search icon and column resizing to remain visible/functional */
+    /* Hide built-in download button in toolbar */
     [data-testid="stElementToolbar"] button[title="Download as CSV"],
-    [data-testid="stElementToolbar"] button[aria-label="Download as CSV"] {
+    [data-testid="stElementToolbar"] button[aria-label="Download as CSV"] {{
         display: none !important;
-    }
+    }}
 
-    /* 2. BLOCK COPY-PASTE FROM DATA CONTAINERS */
-    .stDataFrame, .stTable, [data-testid="stTable"], [data-testid="stDataFrame"] {
+    /* Block Copy-Paste */
+    .stDataFrame, .stTable, [data-testid="stTable"], [data-testid="stDataFrame"] {{
         -webkit-user-select: none;
         -moz-user-select: none;
         -ms-user-select: none;
         user-select: none;
-    }
-
-    /* Prevent context menu (right click) on the whole app */
-    #root {
-        -webkit-touch-callout: none;
-    }
+    }}
 </style>
-
 <script>
-// Disable right-click on the main app area
 document.addEventListener('contextmenu', event => event.preventDefault());
 </script>
 """, unsafe_allow_html=True)
 
 # --- SIDEBAR & FILTERS ---
 st.sidebar.title("🧬 SerGene Bio")
-st.sidebar.write(f"Access level: **Standard User**")
+st.sidebar.write(f"Logged in as: **{st.session_state.get('username', 'User')}**")
 
 if st.sidebar.button("Log Out"):
     st.session_state["authenticated"] = False
@@ -218,18 +230,20 @@ if not df_raw.empty:
             agg_funcs['Source'] = 'first'
         df = df.groupby(['Partner A', 'Partner B', 'Filter_Date'], as_index=False).agg(agg_funcs)
 
-    # --- RESTRICTED DOWNLOAD LOGIC (STRICT 15 DEALS) ---
+    # Export Logic
     st.sidebar.divider()
     st.sidebar.subheader("📥 Export Data")
     download_df = df.sort_values(by='Date_Obj', ascending=False).head(15).copy()
-    csv_data = download_df.to_csv(index=False).encode('utf-8')
+    # Clean export characters
+    for col in download_df.columns:
+        if download_df[col].dtype == 'object':
+            download_df[col] = download_df[col].apply(lambda x: str(x).replace('\u200b', '') if isinstance(x, str) else x)
     
     st.sidebar.download_button(
         label="Download Latest 15 Deals (CSV)",
-        data=csv_data,
+        data=download_df.to_csv(index=False).encode('utf-8'),
         file_name=f"SerGene_Deals_Export_{date.today()}.csv",
-        mime="text/csv",
-        help="Export the top 15 records matching your current selection."
+        mime="text/csv"
     )
 
     # Metrics
@@ -238,16 +252,16 @@ if not df_raw.empty:
     if 'Score' in df.columns:
         scores = pd.to_numeric(df['Score'], errors='coerce').dropna()
         m2.metric("Avg Quality", round(scores.mean(), 1) if not scores.empty else 0)
-    if 'Partner A' in df.columns:
-        top_org = df[df['Partner A'] != ""]['Partner A'].mode()
-        m3.metric("Most Active", top_org[0] if not top_org.empty else "N/A")
-    if 'Diseases' in df.columns:
-        top_dis = df[df['Diseases'] != ""]['Diseases'].mode()
-        m4.metric("Key Area", str(top_dis[0]).split(";")[0] if not top_dis.empty else "N/A")
+    
+    lead_m = df[df['Partner A'] != ""]['Partner A'].mode()
+    m3.metric("Most Active", lead_m[0] if not lead_m.empty else "N/A")
+    
+    dis_m = df[df['Diseases'] != ""]['Diseases'].mode()
+    m4.metric("Key Area", str(dis_m[0]).split(";")[0] if not dis_m.empty else "N/A")
 
     st.divider()
 
-    # Tabs
+    # View Selection
     tab_data, tab_charts = st.tabs(["📊 Data Explorer", "📈 Visual Analytics"])
 
     with tab_data:
@@ -264,44 +278,36 @@ if not df_raw.empty:
                     "Source": st.column_config.LinkColumn("Source", display_text="Read"),
                 }, hide_index=True, use_container_width=True)
             else:
+                # Reading Mode Styling (HTML)
+                html_df = df[final_cols].copy()
+                if "Partner A" in html_df.columns:
+                    html_df["Partner A"] = html_df["Partner A"].apply(lambda x: color_text(x, SERGENE_BLUE))
+                if "Partner B" in html_df.columns:
+                    html_df["Partner B"] = html_df["Partner B"].apply(lambda x: color_text(x, SERGENE_BLUE))
+                if "Diseases" in html_df.columns:
+                    html_df["Diseases"] = html_df["Diseases"].apply(lambda x: color_text(x, DISEASE_BROWN))
+                
                 def make_links(row):
                     val = row.get('Sources_All') or row.get('Source')
                     return " , ".join([f'<a href="{l.strip()}" target="_blank">Source {i+1}</a>' for i, l in enumerate(str(val).split(" | "))]) if val else ""
-                html_df = df[final_cols].copy()
-                if "Source" in html_df.columns: html_df["Source"] = df.apply(make_links, axis=1)
+                
+                if "Source" in html_df.columns:
+                    html_df["Source"] = df.apply(make_links, axis=1)
+                
                 st.markdown(html_df.to_html(escape=False, index=False), unsafe_allow_html=True)
         else:
             st.info("No matches found for current filters.")
 
     with tab_charts:
         if not df.empty:
-            st.subheader("🕵️ Transaction Timeline (Full View)")
+            st.subheader("🕵️ Transaction Timeline")
             timeline_df = df.copy().sort_values('Date_Obj')
-            def wrap_summary(text, width=50):
-                if not text: return ""
-                short_text = text[:300] + "..." if len(text) > 300 else text
-                return "<br>".join(textwrap.wrap(short_text, width=width))
-            timeline_df['Hover_Summary'] = timeline_df['Summary'].apply(lambda x: wrap_summary(x))
-            
             fig_timeline = px.scatter(
-                timeline_df, x="Date_Obj", y="Score", 
-                color="Type" if "Type" in timeline_df.columns else None,
-                hover_name="Title", hover_data={"Date_Obj": "|%Y-%m-%d", "Partner A": True, "Partner B": True, "Hover_Summary": True},
+                timeline_df, x="Date_Obj", y="Score", color_discrete_sequence=[SERGENE_BLUE],
+                hover_name="Title", hover_data={"Date_Obj": "|%Y-%m-%d", "Partner A": True, "Partner B": True},
                 template="plotly_white"
             )
             st.plotly_chart(fig_timeline, use_container_width=True)
-            
-            st.divider()
-            c1, c2 = st.columns(2)
-            with c1:
-                volume_data = df.groupby(df['Date_Obj'].dt.to_period('M')).size().reset_index(name='Deals')
-                volume_data['Date_Obj'] = volume_data['Date_Obj'].dt.to_timestamp()
-                st.plotly_chart(px.line(volume_data, x='Date_Obj', y='Deals', title="Volume Distribution", line_shape='spline'), use_container_width=True)
-            with c2:
-                mod_counts = [{'Modality': m, 'Count': (df[m].astype(str).str.len() > 0).sum()} for m in MODALITIES if m in df.columns]
-                mod_df = pd.DataFrame([m for m in mod_counts if m['Count'] > 0]).sort_values('Count', ascending=False)
-                if not mod_df.empty:
-                    st.plotly_chart(px.bar(mod_df, x='Modality', y='Count', title="Tech Prevalence", color='Count'), use_container_width=True)
         else:
             st.warning("Please adjust filters to see visualizations.")
 
