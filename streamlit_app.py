@@ -121,21 +121,22 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- CUSTOM CSS (SECURITY UPGRADE) ---
+# --- CUSTOM CSS (Surgical Security Upgrade) ---
 st.markdown("""
 <style>
     .block-container { padding-top: 1rem; padding-bottom: 2rem; }
-    [data-testid="stMetric"] { background-color: #f8f9fa; border: 1px solid #e0e0e0; padding: 15px; border-radius: 10px; }
+    [data-testid="stMetric"] { background-color: #f8f9fa; border: 1px solid #e0e0e0; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; }
     thead tr th { font-weight: 800 !important; background-color: #f1f5f9 !important; }
     .stDownloadButton button { background-color: #1e40af !important; color: white !important; border-radius: 8px; width: 100%; }
     
-    /* 1. HIDE BUILT-IN TOOLBAR (Prevents 'Download All' bypass) */
-    [data-testid="stElementToolbar"] {
+    /* 1. SURGICAL FIX: Hide ONLY the download button in the toolbar */
+    /* This allows the search icon and column resizing to remain visible/functional */
+    [data-testid="stElementToolbar"] button[title="Download as CSV"],
+    [data-testid="stElementToolbar"] button[aria-label="Download as CSV"] {
         display: none !important;
     }
 
     /* 2. BLOCK COPY-PASTE FROM DATA CONTAINERS */
-    /* Applied to the dataframes and tables to protect intellectual property */
     .stDataFrame, .stTable, [data-testid="stTable"], [data-testid="stDataFrame"] {
         -webkit-user-select: none;
         -moz-user-select: none;
@@ -143,15 +144,14 @@ st.markdown("""
         user-select: none;
     }
 
-    /* Prevent context menu (right click) on the whole app for added friction */
-    /* Note: Determined users can bypass this, but it stops casual copying */
+    /* Prevent context menu (right click) on the whole app */
     #root {
         -webkit-touch-callout: none;
     }
 </style>
 
 <script>
-// JavaScript to disable right-click on the main app area
+// Disable right-click on the main app area
 document.addEventListener('contextmenu', event => event.preventDefault());
 </script>
 """, unsafe_allow_html=True)
@@ -229,7 +229,7 @@ if not df_raw.empty:
         data=csv_data,
         file_name=f"SerGene_Deals_Export_{date.today()}.csv",
         mime="text/csv",
-        help="Standard access allows exporting only the 15 most recent records from your current selection."
+        help="Export the top 15 records matching your current selection."
     )
 
     # Metrics
