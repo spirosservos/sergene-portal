@@ -102,7 +102,6 @@ def check_password():
         st.markdown("### 🔍 Latest Market Intelligence (Public Preview)")
         preview_df = df_raw.sort_values('Date_Obj', ascending=False).head(10).copy()
         
-        # Apply branding to public preview table (HTML style)
         if "Partner A" in preview_df.columns:
             preview_df["Partner A"] = preview_df["Partner A"].apply(lambda x: color_text(x, SERGENE_BLUE))
         if "Partner B" in preview_df.columns:
@@ -113,8 +112,8 @@ def check_password():
         cols_to_show = ["Date", "Title", "Partner A", "Partner B", "Deal Value"]
         existing_cols = [c for c in cols_to_show if c in preview_df.columns]
         
-        # Wrap in div for scrolling
-        st.markdown(f'<div style="overflow-x: auto;">{preview_df[existing_cols].to_html(escape=False, index=False)}</div>', unsafe_allow_html=True)
+        # Wrapped Preview Table
+        st.markdown(f'<div style="overflow-x: auto; border: 1px solid #eee; border-radius: 8px;">{preview_df[existing_cols].to_html(escape=False, index=False)}</div>', unsafe_allow_html=True)
         st.info("💡 To access full summaries, source links, and historical data, please log in below.")
 
     st.divider()
@@ -144,12 +143,12 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS (PREMIUM READING MODE) ---
 st.markdown(f"""
 <style>
     .block-container {{ padding-top: 1rem; padding-bottom: 2rem; }}
     [data-testid="stMetric"] {{ background-color: #f8f9fa; border: 1px solid #e2e8f0; padding: 15px; border-radius: 10px; }}
-    thead tr th {{ font-weight: 800 !important; background-color: #f1f5f9 !important; color: {SERGENE_BLUE} !important; }}
+    thead tr th {{ font-weight: 800 !important; background-color: #f1f5f9 !important; color: {SERGENE_BLUE} !important; text-align: left !important; }}
     .stDownloadButton button {{ background-color: {SERGENE_BLUE} !important; color: white !important; border-radius: 8px; width: 100%; }}
     
     /* Hide built-in download button in toolbar */
@@ -158,7 +157,7 @@ st.markdown(f"""
         display: none !important;
     }}
 
-    /* Block Copy-Paste */
+    /* Block Copy-Paste on data elements */
     .stDataFrame, .stTable, [data-testid="stTable"], [data-testid="stDataFrame"] {{
         -webkit-user-select: none;
         -moz-user-select: none;
@@ -166,14 +165,54 @@ st.markdown(f"""
         user-select: none;
     }}
     
-    /* Styling for Reading Mode HTML Tables */
+    /* PREMIUM READING TABLE STYLING */
     .reading-table-container {{
         overflow-x: auto;
         margin-top: 1rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: white;
     }}
     .reading-table-container table {{
         width: 100%;
+        min-width: 1800px; /* FORCES horizontal scrollbar for readability */
         border-collapse: collapse;
+        font-size: 0.85rem;
+    }}
+    .reading-table-container th, .reading-table-container td {{
+        padding: 10px 14px !important;
+        border-bottom: 1px solid #f1f5f9;
+        vertical-align: top;
+        text-align: left;
+    }}
+    .reading-table-container tr:hover {{
+        background-color: #f8fafc; /* Subtle hover effect */
+    }}
+    
+    /* Column specific wrapping rules */
+    .col-date {{ white-space: nowrap; width: 100px; }}
+    .col-org {{ white-space: nowrap; font-weight: 600; min-width: 150px; }}
+    .col-value {{ white-space: nowrap; font-weight: 700; color: {SERGENE_BLUE}; }}
+    
+    /* Title and Summary Clamp (Restrict height) */
+    .col-title {{ 
+        min-width: 250px;
+        max-width: 400px;
+        font-weight: 700;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }}
+    .col-summary {{ 
+        min-width: 400px;
+        max-width: 600px;
+        color: #475569;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        line-height: 1.4;
     }}
 </style>
 <script>
@@ -193,7 +232,6 @@ st.sidebar.divider()
 
 if not df_raw.empty:
     st.sidebar.subheader("👁️ Viewing Mode")
-    # UPDATED: Set "Reading Mode" as the default (index 1) so colors are visible immediately
     view_mode = st.sidebar.radio("Layout:", ["Interactive Grid", "Reading Mode"], index=1, label_visibility="collapsed")
     consolidate = st.sidebar.toggle("Consolidate Reports", value=True)
 
@@ -213,7 +251,6 @@ if not df_raw.empty:
     available_cols = [c for c in df_raw.columns if c not in ['Date_Obj', 'Filter_Date', 'ID', 'Sources_All']]
     pref_cols = [c for c in COLUMN_ORDER_PRIORITY if c in available_cols]
     
-    # User Reordering logic
     with st.sidebar.expander("👁️ Customize View"):
         selected_columns = st.multiselect("Display Columns", available_cols, default=pref_cols)
 else:
@@ -281,26 +318,33 @@ if not df_raw.empty:
 
     with tab_data:
         if not df.empty:
-            # Respect selection order exactly
             final_cols = selected_columns
             df_display = df.sort_values(by='Date_Obj', ascending=False)
             
             if view_mode == "Interactive Grid":
-                # Reminder: Grid does not support branding colors
                 st.dataframe(df_display[final_cols], column_config={
                     "Date": st.column_config.DateColumn("Date", format="YYYY-MM-DD"),
                     "Source": st.column_config.LinkColumn("Source", display_text="Read"),
                 }, hide_index=True, use_container_width=True)
-                st.caption("ℹ️ Note: Interactive Grid is for fast sorting/searching. Use 'Reading Mode' for branding colors.")
             else:
-                # Reading Mode Styling (HTML)
+                # PREMIUM READING MODE (HTML)
                 html_df = df_display[final_cols].copy()
+                
+                # Apply Column-Specific HTML Classes for CSS styling
+                if "Date" in html_df.columns:
+                    html_df["Date"] = html_df["Date"].apply(lambda x: f'<div class="col-date">{x}</div>')
+                if "Title" in html_df.columns:
+                    html_df["Title"] = html_df["Title"].apply(lambda x: f'<div class="col-title">{x}</div>')
                 if "Partner A" in html_df.columns:
-                    html_df["Partner A"] = html_df["Partner A"].apply(lambda x: color_text(x, SERGENE_BLUE))
+                    html_df["Partner A"] = html_df["Partner A"].apply(lambda x: f'<div class="col-org">{color_text(x, SERGENE_BLUE)}</div>')
                 if "Partner B" in html_df.columns:
-                    html_df["Partner B"] = html_df["Partner B"].apply(lambda x: color_text(x, SERGENE_BLUE))
+                    html_df["Partner B"] = html_df["Partner B"].apply(lambda x: f'<div class="col-org">{color_text(x, SERGENE_BLUE)}</div>')
                 if "Diseases" in html_df.columns:
                     html_df["Diseases"] = html_df["Diseases"].apply(lambda x: color_text(x, DISEASE_BROWN))
+                if "Deal Value" in html_df.columns:
+                    html_df["Deal Value"] = html_df["Deal Value"].apply(lambda x: f'<div class="col-value">{x}</div>')
+                if "Summary" in html_df.columns:
+                    html_df["Summary"] = html_df["Summary"].apply(lambda x: f'<div class="col-summary">{x}</div>')
                 
                 def make_links(row):
                     val = row.get('Sources_All') or row.get('Source')
@@ -309,7 +353,7 @@ if not df_raw.empty:
                 if "Source" in html_df.columns:
                     html_df["Source"] = df_display.apply(make_links, axis=1)
                 
-                # Wrapped HTML for horizontal scrolling
+                # Render the Premium Table
                 st.markdown(f'<div class="reading-table-container">{html_df.to_html(escape=False, index=False)}</div>', unsafe_allow_html=True)
         else:
             st.info("No matches found for current filters.")
