@@ -109,19 +109,14 @@ def check_password():
         if "Diseases" in preview_df.columns:
             preview_df["Diseases"] = preview_df["Diseases"].apply(lambda x: color_text(x, DISEASE_BROWN))
         
-        # ADDED: "Upfront" and "Milestones" columns to the public preview
         cols_to_show = ["Date", "Title", "Partner A", "Partner B", "Deal Value", "Upfront", "Milestones"]
         existing_cols = [c for c in cols_to_show if c in preview_df.columns]
         
-        # Apply strict styling wrappers for the login preview
         if "Date" in preview_df.columns:
-            # Forced min-width in the div itself
             preview_df["Date"] = preview_df["Date"].apply(lambda x: f'<div class="col-date" style="min-width: 140px;">{x}</div>')
         if "Title" in preview_df.columns:
-            # Constraining Title width slightly to allow Date room
             preview_df["Title"] = preview_df["Title"].apply(lambda x: f'<div class="col-title" style="min-width: 180px; max-width: 300px;">{x}</div>')
         
-        # Styling the new financial columns in preview
         if "Upfront" in preview_df.columns:
             preview_df["Upfront"] = preview_df["Upfront"].apply(lambda x: f'<div class="col-value">{x}</div>')
         if "Milestones" in preview_df.columns:
@@ -129,7 +124,6 @@ def check_password():
         if "Deal Value" in preview_df.columns:
              preview_df["Deal Value"] = preview_df["Deal Value"].apply(lambda x: f'<div class="col-value">{x}</div>')
         
-        # Wrapped Preview Table with scrolling enabled
         st.markdown(f'<div class="reading-table-container" style="min-width: auto; overflow-x: auto;">{preview_df[existing_cols].to_html(escape=False, index=False)}</div>', unsafe_allow_html=True)
         st.info("💡 To access full summaries, source links, and historical data, please log in below.")
 
@@ -168,13 +162,11 @@ st.markdown(f"""
     thead tr th {{ font-weight: 800 !important; background-color: #f1f5f9 !important; color: {SERGENE_BLUE} !important; text-align: left !important; }}
     .stDownloadButton button {{ background-color: {SERGENE_BLUE} !important; color: white !important; border-radius: 8px; width: 100%; }}
     
-    /* Hide built-in download button in toolbar */
     [data-testid="stElementToolbar"] button[title="Download as CSV"],
     [data-testid="stElementToolbar"] button[aria-label="Download as CSV"] {{
         display: none !important;
     }}
 
-    /* Block Copy-Paste on data elements */
     .stDataFrame, .stTable, [data-testid="stTable"], [data-testid="stDataFrame"] {{
         -webkit-user-select: none;
         -moz-user-select: none;
@@ -182,7 +174,6 @@ st.markdown(f"""
         user-select: none;
     }}
     
-    /* PREMIUM READING TABLE STYLING */
     .reading-table-container {{
         overflow-x: auto;
         margin-top: 1rem;
@@ -192,7 +183,7 @@ st.markdown(f"""
     }}
     .reading-table-container table {{
         width: 100%;
-        min-width: 1800px; /* Base width for full dashboard */
+        min-width: 1800px;
         border-collapse: collapse;
         font-size: 0.85rem;
     }}
@@ -206,7 +197,6 @@ st.markdown(f"""
         background-color: #f8fafc;
     }}
     
-    /* FIX: Date Column Width & Wrap Prevention */
     .col-date {{ 
         white-space: nowrap !important; 
         min-width: 140px !important;
@@ -216,7 +206,6 @@ st.markdown(f"""
     .col-org {{ white-space: nowrap; font-weight: 600; min-width: 150px; }}
     .col-value {{ white-space: nowrap; font-weight: 700; color: {SERGENE_BLUE}; }}
     
-    /* Title Width Adjustment */
     .col-title {{ 
         min-width: 200px;
         max-width: 400px;
@@ -359,7 +348,6 @@ if not df_raw.empty:
                     "Source": st.column_config.LinkColumn("Source", display_text="Read"),
                 }, hide_index=True, use_container_width=True)
             else:
-                # PREMIUM READING MODE (HTML)
                 html_df = df_display[final_cols].copy()
                 
                 if "Date" in html_df.columns:
@@ -395,13 +383,64 @@ if not df_raw.empty:
     with tab_charts:
         if not df.empty:
             st.subheader("🕵️ Transaction Timeline")
+            
+            # Helper to wrap text for chart hovers
+            def wrap_summary(text, width=50):
+                if not text: return ""
+                short_text = text[:300] + "..." if len(text) > 300 else text
+                return "<br>".join(textwrap.wrap(short_text, width=width))
+                
             timeline_df = df.copy().sort_values('Date_Obj')
+            timeline_df['Hover_Summary'] = timeline_df['Summary'].apply(lambda x: wrap_summary(x))
+            
             fig_timeline = px.scatter(
-                timeline_df, x="Date_Obj", y="Score", color_discrete_sequence=[SERGENE_BLUE],
-                hover_name="Title", hover_data={"Date_Obj": "|%Y-%m-%d", "Partner A": True, "Partner B": True},
+                timeline_df, x="Date_Obj", y="Score", 
+                color="Type" if "Type" in timeline_df.columns else None,
+                hover_name="Title", 
+                hover_data={
+                    "Date_Obj": "|%Y-%m-%d", 
+                    "Partner A": True, 
+                    "Partner B": True,
+                    "Hover_Summary": True,
+                    "Score": False,
+                    "Type": False if "Type" in timeline_df.columns else None
+                },
+                labels={"Date_Obj": "Date", "Hover_Summary": "Summary"},
                 template="plotly_white"
             )
+            fig_timeline.update_traces(marker=dict(size=12, opacity=0.7, line=dict(width=1, color='DarkSlateGrey')))
+            fig_timeline.update_layout(hovermode='closest')
             st.plotly_chart(fig_timeline, use_container_width=True)
+            
+            st.divider()
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                # Volume Distribution
+                volume_data = df.groupby(df['Date_Obj'].dt.to_period('M')).size().reset_index(name='Deals')
+                volume_data['Date_Obj'] = volume_data['Date_Obj'].dt.to_timestamp()
+                st.plotly_chart(px.line(volume_data, x='Date_Obj', y='Deals', title="Monthly Volume Trend", line_shape='spline'), use_container_width=True)
+                
+                # Transaction Types Pie Chart
+                if 'Type' in df.columns:
+                    type_dist = df[df['Type'] != ""]['Type'].value_counts().reset_index()
+                    type_dist.columns = ['Type', 'Count']
+                    st.plotly_chart(px.pie(type_dist, values='Count', names='Type', title="Transaction Types", hole=0.4), use_container_width=True)
+
+            with c2:
+                # Modality prevalence
+                mod_counts = [{'Modality': m, 'Count': (df[m].astype(str).str.len() > 0).sum()} for m in MODALITIES if m in df.columns]
+                mod_df = pd.DataFrame([m for m in mod_counts if m['Count'] > 0]).sort_values('Count', ascending=False)
+                if not mod_df.empty:
+                    st.plotly_chart(px.bar(mod_df, x='Modality', y='Count', title="Tech Prevalence (Modalities)", color='Count', color_continuous_scale='Viridis'), use_container_width=True)
+                
+                # Most Active Partners Bar Chart
+                if 'Partner A' in df.columns:
+                    active_partners = df[df['Partner A'] != ""]['Partner A'].value_counts().head(10).reset_index()
+                    active_partners.columns = ['Organization', 'Count']
+                    fig_active = px.bar(active_partners, x='Count', y='Organization', orientation='h', title="Top 10 Active Organizations")
+                    fig_active.update_layout(yaxis={'categoryorder':'total ascending'})
+                    st.plotly_chart(fig_active, use_container_width=True)
         else:
             st.warning("Please adjust filters to see visualizations.")
 
