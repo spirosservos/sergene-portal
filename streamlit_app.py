@@ -109,7 +109,8 @@ def check_password():
         if "Diseases" in preview_df.columns:
             preview_df["Diseases"] = preview_df["Diseases"].apply(lambda x: color_text(x, DISEASE_BROWN))
         
-        cols_to_show = ["Date", "Title", "Partner A", "Partner B", "Deal Value"]
+        # ADDED: "Upfront" and "Milestones" columns to the public preview
+        cols_to_show = ["Date", "Title", "Partner A", "Partner B", "Deal Value", "Upfront", "Milestones"]
         existing_cols = [c for c in cols_to_show if c in preview_df.columns]
         
         # Apply strict styling wrappers for the login preview
@@ -119,6 +120,14 @@ def check_password():
         if "Title" in preview_df.columns:
             # Constraining Title width slightly to allow Date room
             preview_df["Title"] = preview_df["Title"].apply(lambda x: f'<div class="col-title" style="min-width: 180px; max-width: 300px;">{x}</div>')
+        
+        # Styling the new financial columns in preview
+        if "Upfront" in preview_df.columns:
+            preview_df["Upfront"] = preview_df["Upfront"].apply(lambda x: f'<div class="col-value">{x}</div>')
+        if "Milestones" in preview_df.columns:
+            preview_df["Milestones"] = preview_df["Milestones"].apply(lambda x: f'<div class="col-value">{x}</div>')
+        if "Deal Value" in preview_df.columns:
+             preview_df["Deal Value"] = preview_df["Deal Value"].apply(lambda x: f'<div class="col-value">{x}</div>')
         
         # Wrapped Preview Table with scrolling enabled
         st.markdown(f'<div class="reading-table-container" style="min-width: auto; overflow-x: auto;">{preview_df[existing_cols].to_html(escape=False, index=False)}</div>', unsafe_allow_html=True)
@@ -365,6 +374,10 @@ if not df_raw.empty:
                     html_df["Diseases"] = html_df["Diseases"].apply(lambda x: color_text(x, DISEASE_BROWN))
                 if "Deal Value" in html_df.columns:
                     html_df["Deal Value"] = html_df["Deal Value"].apply(lambda x: f'<div class="col-value">{x}</div>')
+                if "Upfront" in html_df.columns:
+                    html_df["Upfront"] = html_df["Upfront"].apply(lambda x: f'<div class="col-value">{x}</div>')
+                if "Milestones" in html_df.columns:
+                    html_df["Milestones"] = html_df["Milestones"].apply(lambda x: f'<div class="col-value">{x}</div>')
                 if "Summary" in html_df.columns:
                     html_df["Summary"] = html_df["Summary"].apply(lambda x: f'<div class="col-summary" title="Hover to read full summary">{x}</div>')
                 
