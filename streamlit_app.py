@@ -113,7 +113,8 @@ def check_password():
         cols_to_show = ["Date", "Title", "Partner A", "Partner B", "Deal Value"]
         existing_cols = [c for c in cols_to_show if c in preview_df.columns]
         
-        st.markdown(preview_df[existing_cols].to_html(escape=False, index=False), unsafe_allow_html=True)
+        # Wrap in div for scrolling
+        st.markdown(f'<div style="overflow-x: auto;">{preview_df[existing_cols].to_html(escape=False, index=False)}</div>', unsafe_allow_html=True)
         st.info("💡 To access full summaries, source links, and historical data, please log in below.")
 
     st.divider()
@@ -164,6 +165,16 @@ st.markdown(f"""
         -ms-user-select: none;
         user-select: none;
     }}
+    
+    /* Styling for Reading Mode HTML Tables */
+    .reading-table-container {{
+        overflow-x: auto;
+        margin-top: 1rem;
+    }}
+    .reading-table-container table {{
+        width: 100%;
+        border-collapse: collapse;
+    }}
 </style>
 <script>
 document.addEventListener('contextmenu', event => event.preventDefault());
@@ -182,7 +193,8 @@ st.sidebar.divider()
 
 if not df_raw.empty:
     st.sidebar.subheader("👁️ Viewing Mode")
-    view_mode = st.sidebar.radio("Layout:", ["Interactive Grid", "Reading Mode"], label_visibility="collapsed")
+    # UPDATED: Set "Reading Mode" as the default (index 1) so colors are visible immediately
+    view_mode = st.sidebar.radio("Layout:", ["Interactive Grid", "Reading Mode"], index=1, label_visibility="collapsed")
     consolidate = st.sidebar.toggle("Consolidate Reports", value=True)
 
     with st.sidebar.expander("📅 Date Range", expanded=True):
@@ -201,7 +213,7 @@ if not df_raw.empty:
     available_cols = [c for c in df_raw.columns if c not in ['Date_Obj', 'Filter_Date', 'ID', 'Sources_All']]
     pref_cols = [c for c in COLUMN_ORDER_PRIORITY if c in available_cols]
     
-    # FIX: Using the multiselect return value directly to respect user reordering
+    # User Reordering logic
     with st.sidebar.expander("👁️ Customize View"):
         selected_columns = st.multiselect("Display Columns", available_cols, default=pref_cols)
 else:
@@ -238,7 +250,6 @@ if not df_raw.empty:
     st.sidebar.divider()
     st.sidebar.subheader("📥 Export Data")
     download_df = df.sort_values(by='Date_Obj', ascending=False).head(15).copy()
-    # Clean export characters
     for col in download_df.columns:
         if download_df[col].dtype == 'object':
             download_df[col] = download_df[col].apply(lambda x: str(x).replace('\u200b', '') if isinstance(x, str) else x)
@@ -270,21 +281,20 @@ if not df_raw.empty:
 
     with tab_data:
         if not df.empty:
-            df = df.sort_values(by='Date_Obj', ascending=False)
-            
-            # FIX: Removed the custom sort_key logic that was overriding user's selection order.
-            # We now use selected_columns exactly as selected by the user.
+            # Respect selection order exactly
             final_cols = selected_columns
+            df_display = df.sort_values(by='Date_Obj', ascending=False)
             
             if view_mode == "Interactive Grid":
-                # Note: st.dataframe does not support HTML styling (colors). Use Reading Mode for branding.
-                st.dataframe(df[final_cols], column_config={
+                # Reminder: Grid does not support branding colors
+                st.dataframe(df_display[final_cols], column_config={
                     "Date": st.column_config.DateColumn("Date", format="YYYY-MM-DD"),
                     "Source": st.column_config.LinkColumn("Source", display_text="Read"),
                 }, hide_index=True, use_container_width=True)
+                st.caption("ℹ️ Note: Interactive Grid is for fast sorting/searching. Use 'Reading Mode' for branding colors.")
             else:
                 # Reading Mode Styling (HTML)
-                html_df = df[final_cols].copy()
+                html_df = df_display[final_cols].copy()
                 if "Partner A" in html_df.columns:
                     html_df["Partner A"] = html_df["Partner A"].apply(lambda x: color_text(x, SERGENE_BLUE))
                 if "Partner B" in html_df.columns:
@@ -297,9 +307,10 @@ if not df_raw.empty:
                     return " , ".join([f'<a href="{l.strip()}" target="_blank">Source {i+1}</a>' for i, l in enumerate(str(val).split(" | "))]) if val else ""
                 
                 if "Source" in html_df.columns:
-                    html_df["Source"] = df.apply(make_links, axis=1)
+                    html_df["Source"] = df_display.apply(make_links, axis=1)
                 
-                st.markdown(html_df.to_html(escape=False, index=False), unsafe_allow_html=True)
+                # Wrapped HTML for horizontal scrolling
+                st.markdown(f'<div class="reading-table-container">{html_df.to_html(escape=False, index=False)}</div>', unsafe_allow_html=True)
         else:
             st.info("No matches found for current filters.")
 
