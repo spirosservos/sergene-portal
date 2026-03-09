@@ -76,7 +76,6 @@ COLUMN_ORDER_PRIORITY = [
 ]
 
 # --- DATA LOADING (UPDATED CACHE) ---
-# We changed ttl from 3600 (1 hour) to 600 (10 mins) so your changes show up faster!
 @st.cache_data(ttl=600) 
 def load_data():
     try:
@@ -101,12 +100,16 @@ def load_data():
         }
         df = df.rename(columns=rename_mapping)
         
-        # Mobile Fix: Escape $ signs to prevent regex errors on older iOS
+        # Clean text columns
         text_cols = ['Title', 'Summary', 'Partner A', 'Partner B', 'Diseases', 'Type', 'Source', 'Deal Value', 'Upfront', 'Milestones', 'Royalties']
         for col in text_cols:
             if col in df.columns:
                 df[col] = df[col].fillna("").astype(str).str.strip()
-                df[col] = df[col].apply(lambda x: x.replace('$', r'\$'))
+                
+                # MOBILE FIX (UPDATED): 
+                # Instead of escaping with \, we add a zero-width space after the $.
+                # This breaks the math-mode detection for older iOS browsers but is invisible to the user.
+                df[col] = df[col].apply(lambda x: x.replace('$', '$' + '\u200b'))
                 
                 if col in ['Partner A', 'Partner B']:
                     df[col] = df[col].apply(lambda x: x.title() if x.islower() else x)
