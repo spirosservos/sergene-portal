@@ -112,8 +112,15 @@ def check_password():
         cols_to_show = ["Date", "Title", "Partner A", "Partner B", "Deal Value"]
         existing_cols = [c for c in cols_to_show if c in preview_df.columns]
         
-        # Wrapped Preview Table
-        st.markdown(f'<div style="overflow-x: auto; border: 1px solid #eee; border-radius: 8px;">{preview_df[existing_cols].to_html(escape=False, index=False)}</div>', unsafe_allow_html=True)
+        # Apply special wrappers for columns to match CSS in login preview
+        # This ensures Date doesn't break even on the login page
+        if "Date" in preview_df.columns:
+            preview_df["Date"] = preview_df["Date"].apply(lambda x: f'<div class="col-date">{x}</div>')
+        if "Title" in preview_df.columns:
+            preview_df["Title"] = preview_df["Title"].apply(lambda x: f'<div class="col-title" style="min-width: 200px;">{x}</div>')
+        
+        # Wrapped Preview Table with auto-scrolling
+        st.markdown(f'<div class="reading-table-container" style="min-width: auto;">{preview_df[existing_cols].to_html(escape=False, index=False)}</div>', unsafe_allow_html=True)
         st.info("💡 To access full summaries, source links, and historical data, please log in below.")
 
     st.divider()
@@ -175,7 +182,7 @@ st.markdown(f"""
     }}
     .reading-table-container table {{
         width: 100%;
-        min-width: 1800px; /* FORCES horizontal scrollbar for readability */
+        min-width: 1800px; /* Base width for full dashboard */
         border-collapse: collapse;
         font-size: 0.85rem;
     }}
@@ -186,17 +193,22 @@ st.markdown(f"""
         text-align: left;
     }}
     .reading-table-container tr:hover {{
-        background-color: #f8fafc; /* Subtle hover effect */
+        background-color: #f8fafc;
     }}
     
-    /* Column specific wrapping rules */
-    .col-date {{ white-space: nowrap; width: 100px; }}
+    /* FIX: Date Column Width & Wrap Prevention */
+    .col-date {{ 
+        white-space: nowrap !important; 
+        width: 130px !important;
+        display: inline-block;
+    }}
+    
     .col-org {{ white-space: nowrap; font-weight: 600; min-width: 150px; }}
     .col-value {{ white-space: nowrap; font-weight: 700; color: {SERGENE_BLUE}; }}
     
-    /* Title and Summary Clamp (Restrict height) */
+    /* Title Width Adjustment */
     .col-title {{ 
-        min-width: 250px;
+        min-width: 200px;
         max-width: 400px;
         font-weight: 700;
         display: -webkit-box;
@@ -204,6 +216,7 @@ st.markdown(f"""
         -webkit-box-orient: vertical;
         overflow: hidden;
     }}
+    
     .col-summary {{ 
         min-width: 400px;
         max-width: 600px;
@@ -213,6 +226,15 @@ st.markdown(f"""
         -webkit-box-orient: vertical;
         overflow: hidden;
         line-height: 1.4;
+        transition: all 0.2s ease-in-out;
+    }}
+    .col-summary:hover {{
+        -webkit-line-clamp: unset;
+        display: block;
+        overflow: visible;
+        background: #fff;
+        position: relative;
+        z-index: 10;
     }}
 </style>
 <script>
@@ -330,7 +352,6 @@ if not df_raw.empty:
                 # PREMIUM READING MODE (HTML)
                 html_df = df_display[final_cols].copy()
                 
-                # Apply Column-Specific HTML Classes for CSS styling
                 if "Date" in html_df.columns:
                     html_df["Date"] = html_df["Date"].apply(lambda x: f'<div class="col-date">{x}</div>')
                 if "Title" in html_df.columns:
@@ -344,16 +365,15 @@ if not df_raw.empty:
                 if "Deal Value" in html_df.columns:
                     html_df["Deal Value"] = html_df["Deal Value"].apply(lambda x: f'<div class="col-value">{x}</div>')
                 if "Summary" in html_df.columns:
-                    html_df["Summary"] = html_df["Summary"].apply(lambda x: f'<div class="col-summary">{x}</div>')
+                    html_df["Summary"] = html_df["Summary"].apply(lambda x: f'<div class="col-summary" title="Hover to read full summary">{x}</div>')
                 
                 def make_links(row):
                     val = row.get('Sources_All') or row.get('Source')
-                    return " , ".join([f'<a href="{l.strip()}" target="_blank">Source {i+1}</a>' for i, l in enumerate(str(val).split(" | "))]) if val else ""
+                    return " , ".join([f'<a href="{l.strip()}" target="_blank">Read</a>' for l in str(val).split(" | ")]) if val else ""
                 
                 if "Source" in html_df.columns:
                     html_df["Source"] = df_display.apply(make_links, axis=1)
                 
-                # Render the Premium Table
                 st.markdown(f'<div class="reading-table-container">{html_df.to_html(escape=False, index=False)}</div>', unsafe_allow_html=True)
         else:
             st.info("No matches found for current filters.")
