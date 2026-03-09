@@ -15,50 +15,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 1. AUTHENTICATION SYSTEM ---
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state["authenticated"] = False
-
-    if st.session_state["authenticated"]:
-        return True
-
-    st.title("🔒 SerGene Bio | Secure Access")
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        
-        if "users" in st.secrets:
-            VALID_USERS = st.secrets["users"]
-        else:
-            VALID_USERS = {"admin": "admin123"}
-
-        if st.button("Log In"):
-            if username in VALID_USERS and str(VALID_USERS[username]) == password:
-                st.session_state["authenticated"] = True
-                st.session_state["username"] = username
-                st.rerun()
-            else:
-                st.error("😕 Incorrect username or password")
-    return False
-
-if not check_password():
-    st.stop()
-
-# --- CUSTOM CSS ---
-st.markdown("""
-<style>
-    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
-    [data-testid="stMetric"] { background-color: #f8f9fa; border: 1px solid #e0e0e0; padding: 15px; border-radius: 10px; }
-    thead tr th { font-weight: 800 !important; background-color: #f1f5f9 !important; }
-    @media (max-width: 640px) {
-        .stMetric { padding: 10px; }
-        h1 { font-size: 1.2rem !important; }
-    }
-</style>
-""", unsafe_allow_html=True)
-
 # --- MASTER ORDER & CONSTANTS ---
 MODALITIES = [
     "Small Molecule", "Biologics", "Protein Degrader", "Peptide", "GLP-1", "Incretin",
@@ -75,7 +31,7 @@ COLUMN_ORDER_PRIORITY = [
     "Summary", "Source"
 ]
 
-# --- DATA LOADING (UPDATED CACHE) ---
+# --- DATA LOADING ---
 @st.cache_data(ttl=600) 
 def load_data():
     try:
@@ -100,15 +56,12 @@ def load_data():
         }
         df = df.rename(columns=rename_mapping)
         
-        # Clean text columns
+        # Clean text columns and apply Mobile-Friendly Zero-Width Space fix
         text_cols = ['Title', 'Summary', 'Partner A', 'Partner B', 'Diseases', 'Type', 'Source', 'Deal Value', 'Upfront', 'Milestones', 'Royalties']
         for col in text_cols:
             if col in df.columns:
                 df[col] = df[col].fillna("").astype(str).str.strip()
-                
-                # MOBILE FIX (UPDATED): 
-                # Instead of escaping with \, we add a zero-width space after the $.
-                # This breaks the math-mode detection for older iOS browsers but is invisible to the user.
+                # Zero-width space fix for older iOS math-mode crash
                 df[col] = df[col].apply(lambda x: x.replace('$', '$' + '\u200b'))
                 
                 if col in ['Partner A', 'Partner B']:
@@ -121,14 +74,73 @@ def load_data():
 
         return df
     except Exception as e:
-        st.error(f"Error loading database: {e}")
         return pd.DataFrame()
 
+# Pre-load data for both login and main app
 df_raw = load_data()
+
+# --- AUTHENTICATION SYSTEM ---
+def check_password():
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+
+    if st.session_state["authenticated"]:
+        return True
+
+    # --- LOGIN PAGE UI ---
+    st.markdown("<h1 style='text-align: center; color: #1e40af;'>🧬 SerGene Bio | Intelligence Portal</h1>", unsafe_allow_html=True)
+    
+    # 1. PUBLIC PREVIEW SECTION
+    if not df_raw.empty:
+        st.markdown("### 🔍 Latest Market Intelligence (Public Preview)")
+        preview_df = df_raw.sort_values('Date_Obj', ascending=False).head(15).copy()
+        # Hide sensitive columns for public view
+        cols_to_show = ["Date", "Title", "Partner A", "Partner B", "Deal Value"]
+        existing_cols = [c for c in cols_to_show if c in preview_df.columns]
+        st.dataframe(preview_df[existing_cols], hide_index=True, use_container_width=True)
+        st.info("💡 To access full summaries, source links, and historical data, please log in below.")
+
+    st.divider()
+
+    # 2. LOGIN FORM
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.subheader("🔒 Secure Access")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        
+        if "users" in st.secrets:
+            VALID_USERS = st.secrets["users"]
+        else:
+            VALID_USERS = {"admin": "admin123"}
+
+        if st.button("Log In", use_container_width=True):
+            if username in VALID_USERS and str(VALID_USERS[username]) == password:
+                st.session_state["authenticated"] = True
+                st.session_state["username"] = username
+                st.rerun()
+            else:
+                st.error("😕 Incorrect username or password")
+    
+    st.markdown("<p style='text-align: center; color: gray; font-size: 0.8rem;'>Contact SerGene Bio admin for access credentials.</p>", unsafe_allow_html=True)
+    return False
+
+if not check_password():
+    st.stop()
+
+# --- CUSTOM CSS ---
+st.markdown("""
+<style>
+    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
+    [data-testid="stMetric"] { background-color: #f8f9fa; border: 1px solid #e0e0e0; padding: 15px; border-radius: 10px; }
+    thead tr th { font-weight: 800 !important; background-color: #f1f5f9 !important; }
+    .stDownloadButton button { background-color: #1e40af !important; color: white !important; border-radius: 8px; width: 100%; }
+</style>
+""", unsafe_allow_html=True)
 
 # --- SIDEBAR & FILTERS ---
 st.sidebar.title("🧬 SerGene Bio")
-st.sidebar.write(f"Logged in: **{st.session_state.get('username', 'User')}**")
+st.sidebar.write(f"Access level: **Standard User**")
 
 if st.sidebar.button("Log Out"):
     st.session_state["authenticated"] = False
@@ -163,16 +175,16 @@ else:
 
 # --- MAIN DASHBOARD ---
 st.title("🧬 Deal Intelligence Portal")
-search_query = st.text_input("", placeholder="🔍 Search database...", label_visibility="collapsed")
+search_query = st.text_input("", placeholder="🔍 Search full database...", label_visibility="collapsed")
 
 if not df_raw.empty:
     df = df_raw.copy()
+    
+    # Apply Filtering
     df = df[(df['Filter_Date'] >= start_date) & (df['Filter_Date'] <= end_date)]
-
     if selected_mods:
         mod_mask = df[selected_mods].apply(lambda x: x.astype(str).str.strip() != "").any(axis=1)
         df = df[mod_mask]
-
     if search_query:
         q = search_query.lower()
         search_cols = [c for c in ['Title', 'Summary', 'Partner A', 'Partner B', 'Diseases'] if c in df.columns]
@@ -188,9 +200,24 @@ if not df_raw.empty:
             agg_funcs['Source'] = 'first'
         df = df.groupby(['Partner A', 'Partner B', 'Filter_Date'], as_index=False).agg(agg_funcs)
 
+    # --- RESTRICTED DOWNLOAD LOGIC ---
+    st.sidebar.divider()
+    st.sidebar.subheader("📥 Export Data")
+    # Prepare top 15 results for download
+    download_df = df.sort_values(by='Date_Obj', ascending=False).head(15).copy()
+    csv_data = download_df.to_csv(index=False).encode('utf-8')
+    
+    st.sidebar.download_button(
+        label="Download Latest 15 Deals (CSV)",
+        data=csv_data,
+        file_name=f"SerGene_Deals_Export_{date.today()}.csv",
+        mime="text/csv",
+        help="Free/Standard access allows exporting the top 15 records from your current selection."
+    )
+
     # --- TOP METRICS ---
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Unique Deals", len(df))
+    m1.metric("Database Matches", len(df))
     if 'Score' in df.columns:
         scores = pd.to_numeric(df['Score'], errors='coerce').dropna()
         m2.metric("Avg Quality", round(scores.mean(), 1) if not scores.empty else 0)
@@ -231,7 +258,7 @@ if not df_raw.empty:
 
     with tab_charts:
         if not df.empty:
-            st.subheader("🕵️ Transaction Timeline")
+            st.subheader("🕵️ Transaction Timeline (Full View)")
             timeline_df = df.copy().sort_values('Date_Obj')
             
             def wrap_summary(text, width=50):
@@ -242,58 +269,24 @@ if not df_raw.empty:
             timeline_df['Hover_Summary'] = timeline_df['Summary'].apply(lambda x: wrap_summary(x))
             
             fig_timeline = px.scatter(
-                timeline_df, 
-                x="Date_Obj", 
-                y="Score", 
+                timeline_df, x="Date_Obj", y="Score", 
                 color="Type" if "Type" in timeline_df.columns else None,
-                hover_name="Title", 
-                hover_data={
-                    "Date_Obj": "|%Y-%m-%d",
-                    "Partner A": True,
-                    "Partner B": True,
-                    "Diseases": True,
-                    "Deal Value": True,
-                    "Hover_Summary": True,
-                    "Score": False 
-                },
-                labels={
-                    "Date_Obj": "Date", 
-                    "Partner A": "Org A", 
-                    "Partner B": "Org B", 
-                    "Diseases": "Diseases",
-                    "Deal Value": "Value",
-                    "Hover_Summary": "Summary"
-                },
+                hover_name="Title", hover_data={"Date_Obj": "|%Y-%m-%d", "Partner A": True, "Partner B": True, "Hover_Summary": True},
                 template="plotly_white"
-            )
-            fig_timeline.update_traces(marker=dict(size=12, opacity=0.7, line=dict(width=1, color='DarkSlateGrey')))
-            fig_timeline.update_layout(
-                hovermode='closest', 
-                hoverdistance=10,
-                hoverlabel=dict(bgcolor="white", font_size=12, align="left")
             )
             st.plotly_chart(fig_timeline, use_container_width=True)
             
             st.divider()
-            
             c1, c2 = st.columns(2)
             with c1:
                 volume_data = df.groupby(df['Date_Obj'].dt.to_period('M')).size().reset_index(name='Deals')
                 volume_data['Date_Obj'] = volume_data['Date_Obj'].dt.to_timestamp()
-                fig_trend = px.line(volume_data, x='Date_Obj', y='Deals', title="Monthly Volume Trend", line_shape='spline')
-                st.plotly_chart(fig_trend, use_container_width=True)
-
+                st.plotly_chart(px.line(volume_data, x='Date_Obj', y='Deals', title="Volume Distribution", line_shape='spline'), use_container_width=True)
             with c2:
-                mod_counts = []
-                for mod in MODALITIES:
-                    if mod in df.columns:
-                        count = (df[mod].astype(str).str.len() > 0).sum()
-                        if count > 0: mod_counts.append({'Modality': mod, 'Count': count})
-                
-                if mod_counts:
-                    mod_df = pd.DataFrame(mod_counts).sort_values('Count', ascending=False)
-                    fig_mod = px.bar(mod_df, x='Modality', y='Count', title="Tech Prevalence", color='Count', color_continuous_scale='Viridis')
-                    st.plotly_chart(fig_mod, use_container_width=True)
+                mod_counts = [{'Modality': m, 'Count': (df[m].astype(str).str.len() > 0).sum()} for m in MODALITIES if m in df.columns]
+                mod_df = pd.DataFrame([m for m in mod_counts if m['Count'] > 0]).sort_values('Count', ascending=False)
+                if not mod_df.empty:
+                    st.plotly_chart(px.bar(mod_df, x='Modality', y='Count', title="Tech Prevalence", color='Count'), use_container_width=True)
         else:
             st.warning("Please adjust filters to see visualizations.")
 
