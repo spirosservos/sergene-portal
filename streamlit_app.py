@@ -107,6 +107,8 @@ def check_password():
             preview_df["Partner A"] = preview_df["Partner A"].apply(lambda x: color_text(x, SERGENE_BLUE))
         if "Partner B" in preview_df.columns:
             preview_df["Partner B"] = preview_df["Partner B"].apply(lambda x: color_text(x, SERGENE_BLUE))
+        if "Diseases" in preview_df.columns:
+            preview_df["Diseases"] = preview_df["Diseases"].apply(lambda x: color_text(x, DISEASE_BROWN))
         
         cols_to_show = ["Date", "Title", "Partner A", "Partner B", "Deal Value"]
         existing_cols = [c for c in cols_to_show if c in preview_df.columns]
@@ -198,6 +200,8 @@ if not df_raw.empty:
 
     available_cols = [c for c in df_raw.columns if c not in ['Date_Obj', 'Filter_Date', 'ID', 'Sources_All']]
     pref_cols = [c for c in COLUMN_ORDER_PRIORITY if c in available_cols]
+    
+    # FIX: Using the multiselect return value directly to respect user reordering
     with st.sidebar.expander("👁️ Customize View"):
         selected_columns = st.multiselect("Display Columns", available_cols, default=pref_cols)
 else:
@@ -267,12 +271,13 @@ if not df_raw.empty:
     with tab_data:
         if not df.empty:
             df = df.sort_values(by='Date_Obj', ascending=False)
-            def sort_key(col):
-                try: return COLUMN_ORDER_PRIORITY.index(col)
-                except: return 999
-            final_cols = sorted(selected_columns, key=sort_key)
+            
+            # FIX: Removed the custom sort_key logic that was overriding user's selection order.
+            # We now use selected_columns exactly as selected by the user.
+            final_cols = selected_columns
             
             if view_mode == "Interactive Grid":
+                # Note: st.dataframe does not support HTML styling (colors). Use Reading Mode for branding.
                 st.dataframe(df[final_cols], column_config={
                     "Date": st.column_config.DateColumn("Date", format="YYYY-MM-DD"),
                     "Source": st.column_config.LinkColumn("Source", display_text="Read"),
