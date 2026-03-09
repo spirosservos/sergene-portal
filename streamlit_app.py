@@ -112,15 +112,16 @@ def check_password():
         cols_to_show = ["Date", "Title", "Partner A", "Partner B", "Deal Value"]
         existing_cols = [c for c in cols_to_show if c in preview_df.columns]
         
-        # Apply special wrappers for columns to match CSS in login preview
-        # This ensures Date doesn't break even on the login page
+        # Apply strict styling wrappers for the login preview
         if "Date" in preview_df.columns:
-            preview_df["Date"] = preview_df["Date"].apply(lambda x: f'<div class="col-date">{x}</div>')
+            # Forced min-width in the div itself
+            preview_df["Date"] = preview_df["Date"].apply(lambda x: f'<div class="col-date" style="min-width: 140px;">{x}</div>')
         if "Title" in preview_df.columns:
-            preview_df["Title"] = preview_df["Title"].apply(lambda x: f'<div class="col-title" style="min-width: 200px;">{x}</div>')
+            # Constraining Title width slightly to allow Date room
+            preview_df["Title"] = preview_df["Title"].apply(lambda x: f'<div class="col-title" style="min-width: 180px; max-width: 300px;">{x}</div>')
         
-        # Wrapped Preview Table with auto-scrolling
-        st.markdown(f'<div class="reading-table-container" style="min-width: auto;">{preview_df[existing_cols].to_html(escape=False, index=False)}</div>', unsafe_allow_html=True)
+        # Wrapped Preview Table with scrolling enabled
+        st.markdown(f'<div class="reading-table-container" style="min-width: auto; overflow-x: auto;">{preview_df[existing_cols].to_html(escape=False, index=False)}</div>', unsafe_allow_html=True)
         st.info("💡 To access full summaries, source links, and historical data, please log in below.")
 
     st.divider()
@@ -199,8 +200,8 @@ st.markdown(f"""
     /* FIX: Date Column Width & Wrap Prevention */
     .col-date {{ 
         white-space: nowrap !important; 
-        width: 130px !important;
-        display: inline-block;
+        min-width: 140px !important;
+        display: block !important;
     }}
     
     .col-org {{ white-space: nowrap; font-weight: 600; min-width: 150px; }}
