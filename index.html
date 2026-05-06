@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SerGene | Deal Intelligence Portal</title>
+    <!-- Tailwind CSS for Styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React and Babel -->
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.23.10/babel.min.js"></script>
+    <!-- Lucide Core (Reliable UMD Build) -->
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.321.0/dist/umd/lucide.min.js"></script>
+    <!-- Hyparquet for reading Parquet files -->
+    <script src="https://cdn.jsdelivr.net/npm/hyparquet@0.4.0/dist/hyparquet.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; margin: 0; padding: 0; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+            cursor: pointer;
+        }
+        .deal-table th, .deal-table td {
+            padding-left: 1.25rem;
+            padding-right: 1.25rem;
+        }
+        #root { height: 100vh; width: 100vw; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="root">
+        <div style="height: 100vh; width: 100%; display: flex; align-items: center; justify-content: center; background: #0f172a; color: white; flex-direction: column;">
+            <div style="width: 40px; height: 40px; border: 4px solid #3b82f6; border-top: 4px solid transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+            <p style="margin-top: 20px; font-weight: bold; letter-spacing: 0.1em; font-size: 12px; opacity: 0.6;">INITIALIZING SERGENE...</p>
+        </div>
+    </div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+        
+        /**
+         * Fail-Safe Icon Component
+         * Doesn't crash the app if the icon library is slow or has an error
+         */
+        const Icon = ({ name, size = 18, className = "" }) => {
+            const [svg, setSvg] = useState('');
+
+            useEffect(() => {
+                const lib = window.lucide;
+                if (lib && lib.icons && lib.icons[name]) {
+                    // Manually build the SVG if createSvg is missing or problematic
+                    try {
+                        const iconData = lib.icons[name];
+                        const [tag, attrs, children] = iconData;
+                        
+                        const childContent = children.map(([childTag, childAttrs]) => {
+                            const attrString = Object.entries(childAttrs)
+                                .map(([k, v]) => `${k}="${v}"`)
+                                .join(' ');
+                            return `<${childTag} ${attrString} />`;
+                        }).join('');
+
+                        const finalSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}">${childContent}</svg>`;
+                        setSvg(finalSvg);
+                    } catch (e) {
+                        console.error("Icon render fail:", name);
+                    }
+                }
+            }, [name, size, className]);
+
+            if (!svg) return <div style={{ width: size, height: size }} className={`bg-slate-700/20 rounded ${className}`} />;
+            
+            return (
+                <span 
+                    className={`inline-flex items-center justify-center ${className}`}
+                    dangerouslySetInnerHTML={{ __html: svg }} 
+                />
+            );
+        };
+
+        // --- CONFIGURATION ---
+        const RAW_DATA_URL = "https://raw.githubusercontent.com/spirosservos/sergene-portal/main/sg_intel_assets.parquet";
+        const PORTAL_PASSWORD = "SerGene2024"; 
+
+        const MODALITIES_LIST = [
+            "Small Molecule", "Biologics", "Protein Degrader", "Peptide", "GLP-1", "Incretin", 
+            "RNA", "mRNA", "siRNA", "RNAi", "miRNA", "ASO", "Antisense", "Aptamer", "CRISPR", 
+            "Gene Therapy", "Gene Editing", "Base Editing", "Prime Editing", "AAV", "Lentivirus", 
+            "Lenti Vector", "Tregs", "TCR", "CAR-T", "Cell Therapy", "NK Cells", "TILs", "ADC", 
+            "Antibody", "Bispecific", "Exosomes", "LNP", "Oral"
+        ];
+
+        const CATEGORIES_LIST = [
+            'Financing/VC', 'Financial/M&A', 'Partnership/R&D', 'Clinical/Regulatory'
+        ];
+
+        const App = () => {
+            const [isLoggedIn, setIsLoggedIn] = useState(false);
+            const [passwordInput, setPasswordInput] = useState('');
+            const [authError, setAuthError] = useState(false);
+            const [viewMode, setViewMode] = useState('interactive');
+            const [allDeals, setAllDeals] = useState([]);
+            const [isLoading, setIsLoading] = useState(true);
+            const [loadError, setLoadError] = useState(null);
+            
+            const [searchTerm, setSearchTerm] = useState('');
+            const [isModalityModalOpen, setIsModalityModalOpen] = useState(false);
+            const [dateRange, setDateRange] = useState({ start: '', end: '' });
+            const [selectedCategories, setSelectedCategories] = useState([]);
+            const [selectedModalities, setSelectedModalities] = useState([]);
+
+            useEffect(() => {
+                const fetchData = async () => {
+                    try {
+                        setIsLoading(true);
+                        
+                        // Wait up to 3 seconds for libraries to be available
+                        let checks = 0;
+                        while (typeof window.hyparquet === 'undefined' && checks < 30) {
+                            await new Promise(r => setTimeout(r, 100));
+                            checks++;
+                        }
+
+                        if (typeof window.hyparquet === 'undefined') {
+                            throw new Error("Database engine failed to load. Please check your connection.");
+                        }
+
+                        const resp = await fetch(RAW_DATA_URL);
+                        if (!resp.ok) {
+                            throw new Error("Cannot reach database file on GitHub. Ensure repository is Public.");
+                        }
+
+                        const buffer = await resp.arrayBuffer();
+                        
+                        window.hyparquet.parquetRead({
+                            file: buffer,
+                            onComplete: (rows) => {
+                                try {
+                                    const formatted = rows.map((row, idx) => {
+                                        if (!row || row.length < 5) return null;
+                                        return {
+                                            ID: row[0] || `row-${idx}`,
+                                            Date: row[1] || '',
+                                            Title: row[2] || 'Untitled Deal',
+                                            Category: row[3] || 'Uncategorized',
+                                            StrategicInsight: row[5] || '', 
+                                            TherapeuticArea: row[6] || '',
+                                            Score: parseInt(row[7]) || 0,
+                                            Summary: row[9] || '',
+                                            DealValue: row[10] || 'Undisclosed',
+                                            PartnerA: row[14] || '', 
+                                            PartnerB: row[15] || '',
+                                            Modalities: Array.isArray(row[row.length - 1]) ? row[row.length - 1] : [] 
+                                        };
+                                    }).filter(Boolean);
+
+                                    setAllDeals(formatted);
+                                    setIsLoading(false);
+                                } catch (e) {
+                                    setLoadError("Parsing Error: Parquet format mismatch.");
+                                    setIsLoading(false);
+                                }
+                            }
+                        });
+                    } catch (err) {
+                        setLoadError(err.message);
+                        setIsLoading(false);
+                    }
+                };
+                fetchData();
+            }, []);
+
+            const handleLogin = (e) => {
+                e.preventDefault();
+                if (passwordInput === PORTAL_PASSWORD) {
+                    setIsLoggedIn(true);
+                    setAuthError(false);
+                } else {
+                    setAuthError(true);
+                }
+            };
+
+            const toggleFilter = (item, list, setList) => {
+                if (list.includes(item)) {
+                    setList(list.filter(i => i !== item));
+                } else {
+                    setList([...list, item]);
+                }
+            };
+
+            const filteredDeals = useMemo(() => {
+                const data = allDeals.filter(deal => {
+                    const content = `${deal.Title} ${deal.StrategicInsight} ${deal.PartnerA} ${deal.PartnerB}`.toLowerCase();
+                    const matchesSearch = content.includes(searchTerm.toLowerCase());
+                    const matchesCategory = selectedCategories.length === 0 || selectedCategories.includes(deal.Category);
+                    const matchesModality = selectedModalities.length === 0 || 
+                        (Array.isArray(deal.Modalities) && deal.Modalities.some(m => selectedModalities.includes(m)));
+                    
+                    const dealDate = deal.Date ? new Date(deal.Date) : null;
+                    const matchesDate = (!dateRange.start || (dealDate && dealDate >= new Date(dateRange.start))) &&
+                                        (!dateRange.end || (dealDate && dealDate <= new Date(dateRange.end)));
+                    
+                    return matchesSearch && matchesCategory && matchesModality && matchesDate;
+                });
+                return isLoggedIn ? data : data.slice(0, 20);
+            }, [searchTerm, selectedCategories, selectedModalities, dateRange, isLoggedIn, allDeals]);
+
+            if (isLoading) return (
+                <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white font-sans">
+                    <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <p className="text-xs font-bold tracking-[0.2em] uppercase opacity-50">Syncing Intelligence...</p>
+                </div>
+            );
+
+            if (loadError) return (
+                <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 text-slate-900 p-8 text-center font-sans">
+                    <div className="mb-6 text-red-500"><Icon name="AlertCircle" size={64} /></div>
+                    <h2 className="text-2xl font-black mb-2 tracking-tight">Database Connection Failed</h2>
+                    <p className="text-slate-500 max-w-md mb-8 leading-relaxed font-medium">{loadError}</p>
+                    <button onClick={() => window.location.reload()} className="bg-slate-900 text-white px-10 py-3 rounded-2xl font-black text-sm shadow-xl">Retry Connection</button>
+                </div>
+            );
+
+            return (
+                <div className="flex h-screen bg-slate-50 overflow-hidden text-slate-900 font-sans">
+                    {/* SIDEBAR */}
+                    <aside className="w-72 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 shrink-0">
+                        <div className="p-6 border-b border-slate-800">
+                            <div className="flex items-center gap-4">
+                                <div className="bg-white p-2 rounded-lg shadow-xl shrink-0">
+                                    <div className="w-9 h-9 bg-blue-600 rounded flex items-center justify-center text-white font-black">SG</div>
+                                </div>
+                                <div>
+                                    <h1 className="font-bold text-white text-lg tracking-tight leading-none">SerGene</h1>
+                                    <p className="text-[8px] font-bold text-blue-400 uppercase tracking-[0.2em] mt-1.5">Intelligence Portal</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <nav className="flex-1 overflow-y-auto p-6 space-y-7 scrollbar-hide">
+                            <div className={`space-y-3 ${!isLoggedIn ? 'opacity-30 pointer-events-none' : ''}`}>
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                                    <Icon name="FlaskConical" size={14} /> Modalities
+                                </h3>
+                                <button onClick={() => setIsModalityModalOpen(true)} className="w-full flex items-center justify-between bg-slate-800/50 border border-slate-700 rounded-xl p-3.5 text-xs text-slate-300 hover:bg-slate-800 transition-all shadow-inner">
+                                    <span>{selectedModalities.length > 0 ? `${selectedModalities.length} Active` : 'Filter Modalities'}</span>
+                                    <Icon name="Plus" size={16} className="text-blue-400" />
+                                </button>
+                            </div>
+
+                            <div className={`space-y-3 ${!isLoggedIn ? 'opacity-30 pointer-events-none' : ''}`}>
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                                    <Icon name="Calendar" size={14} /> Date Range
+                                </h3>
+                                <div className="grid grid-cols-1 gap-2.5">
+                                    <input type="date" className="w-full bg-slate-800/50 border border-slate-700 rounded-xl p-3 text-xs text-white outline-none" value={dateRange.start} onChange={(e) => setDateRange({...dateRange, start: e.target.value})} />
+                                    <input type="date" className="w-full bg-slate-800/50 border border-slate-700 rounded-xl p-3 text-xs text-white outline-none" value={dateRange.end} onChange={(e) => setDateRange({...dateRange, end: e.target.value})} />
+                                </div>
+                            </div>
+
+                            <div className="space-y-3">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                                    <Icon name="Filter" size={14} /> Categories
+                                </h3>
+                                <div className="space-y-1.5">
+                                    {CATEGORIES_LIST.map(cat => (
+                                        <button key={cat} onClick={() => toggleFilter(cat, selectedCategories, setSelectedCategories)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-medium transition-all ${selectedCategories.includes(cat) ? 'bg-blue-600/20 text-blue-400 border border-blue-500/20 shadow-lg shadow-blue-900/20' : 'hover:bg-white/5 border border-transparent'}`}>
+                                            {selectedCategories.includes(cat) ? <Icon name="CheckSquare" size={16} /> : <Icon name="Square" size={16} className="text-slate-700" />}
+                                            {cat}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </nav>
+
+                        <div className="p-5 border-t border-slate-800 bg-slate-950/20">
+                            <div className={`p-4 rounded-2xl border transition-all ${isLoggedIn ? 'bg-emerald-600/10 border-emerald-500/20 text-emerald-400' : 'bg-slate-800/50 border-slate-700'}`}>
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-lg ${isLoggedIn ? 'bg-emerald-500' : 'bg-blue-600'}`}>
+                                        <Icon name={isLoggedIn ? "ShieldCheck" : "Unlock"} size={18} />
+                                    </div>
+                                    <div>
+                                        <p className="text-xs font-bold text-white">{isLoggedIn ? 'Full Access' : 'Guest Mode'}</p>
+                                        <p className="text-[9px] opacity-70 uppercase tracking-tighter mt-1 leading-none">{isLoggedIn ? 'Verified License' : 'Latest 20 Deals'}</p>
+                                    </div>
+                                </div>
+                                {!isLoggedIn && (
+                                    <form onSubmit={handleLogin} className="space-y-2.5">
+                                        <input type="password" placeholder="Access Code" className={`w-full bg-slate-900 border ${authError ? 'border-red-500' : 'border-slate-700'} rounded-xl p-3 text-[10px] text-white outline-none focus:ring-1 focus:ring-blue-500/50`} value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} />
+                                        <button type="submit" className="w-full bg-blue-600 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-500 transition-colors shadow-lg shadow-blue-600/20">Unlock</button>
+                                    </form>
+                                )}
+                            </div>
+                        </div>
+                    </aside>
+
+                    {/* MAIN CONTENT */}
+                    <div className="flex-1 flex flex-col overflow-hidden relative">
+                        {isModalityModalOpen && (
+                            <div className="absolute inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/40 backdrop-blur-md">
+                                <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-200">
+                                    <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+                                        <h3 className="text-2xl font-black text-slate-900 tracking-tight">Modalities Filter</h3>
+                                        <button onClick={() => setIsModalityModalOpen(false)} className="p-2.5 bg-white border border-slate-200 rounded-full hover:bg-slate-50 transition-all shadow-sm"><Icon name="X" size={20} className="text-slate-500" /></button>
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto p-10 grid grid-cols-2 md:grid-cols-4 gap-3.5">
+                                        {MODALITIES_LIST.map(mod => (
+                                            <button key={mod} onClick={() => toggleFilter(mod, selectedModalities, setSelectedModalities)} className={`p-4 rounded-2xl border text-[11px] font-bold transition-all ${selectedModalities.includes(mod) ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-white border-slate-200 hover:border-blue-400 text-slate-600'}`}>
+                                                {mod}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="p-8 border-t bg-white flex justify-end px-10">
+                                        <button onClick={() => setIsModalityModalOpen(false)} className="bg-slate-900 text-white px-12 py-4 rounded-2xl font-black text-sm active:scale-95 transition-transform shadow-xl">Apply Filters</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-10 shrink-0">
+                            <div className="flex items-center gap-10">
+                                <h2 className="text-xl font-black text-slate-900 tracking-tighter uppercase shrink-0">Deal Portal</h2>
+                                <div className="flex bg-slate-100 p-1.5 rounded-2xl shadow-inner">
+                                    <button onClick={() => setViewMode('interactive')} className={`px-6 py-2.5 rounded-xl text-xs font-black transition-all ${viewMode === 'interactive' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}>Interactive</button>
+                                    <button onClick={() => setViewMode('reading')} className={`px-6 py-2.5 rounded-xl text-xs font-black transition-all ${viewMode === 'reading' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}>Reading</button>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-6">
+                                <div className="relative group">
+                                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><Icon name="Search" size={18} /></div>
+                                    <input type="text" placeholder="Search insights, partners..." className="pl-12 pr-6 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm w-80 focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:bg-white transition-all font-semibold" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                                </div>
+                            </div>
+                        </header>
+
+                        <main className="flex-1 overflow-y-auto p-10 scroll-smooth">
+                            {filteredDeals.length > 0 ? (
+                                viewMode === 'interactive' ? (
+                                    <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-x-auto mb-12">
+                                        <table className="w-full text-left border-collapse min-w-[1100px] deal-table">
+                                            <thead>
+                                                <tr className="bg-slate-50/50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                                                    <th className="py-6 w-32">Date</th>
+                                                    <th className="py-6">Strategic Insight & Context</th>
+                                                    <th className="py-6 w-40">Partner A</th>
+                                                    <th className="py-6 w-40">Partner B</th>
+                                                    <th className="py-6 w-36">Value</th>
+                                                    <th className="py-6 text-center w-28">Score</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {filteredDeals.map((deal) => (
+                                                    <tr key={deal.ID} className="group hover:bg-slate-50/40 transition-all cursor-pointer">
+                                                        <td className="py-8 text-sm font-bold text-slate-400 align-top whitespace-nowrap">{deal.Date}</td>
+                                                        <td className="py-8 max-w-md align-top">
+                                                            <p className="font-black text-slate-900 leading-snug mb-2 group-hover:text-blue-600 transition-colors">{deal.StrategicInsight}</p>
+                                                            <p className="text-[11px] text-slate-500 leading-tight mb-4 italic font-medium">{deal.Title}</p>
+                                                            <div className="flex flex-wrap gap-1.5">
+                                                                <span className="text-[9px] bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-black uppercase border border-blue-100/50 tracking-tighter">{deal.TherapeuticArea}</span>
+                                                                {Array.isArray(deal.Modalities) && deal.Modalities.map(m => (
+                                                                    <span key={m} className="text-[9px] bg-slate-100 text-slate-500 px-3 py-1.5 rounded-lg font-black uppercase tracking-tighter">{m}</span>
+                                                                ))}
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-8 align-top font-black text-slate-700 text-xs leading-relaxed">{deal.PartnerA}</td>
+                                                        <td className="py-8 align-top font-black text-slate-700 text-xs leading-relaxed">{deal.PartnerB}</td>
+                                                        <td className="py-8 font-black text-emerald-600 text-sm align-top whitespace-nowrap tracking-tight">{deal.DealValue}</td>
+                                                        <td className="py-8 text-center align-top">
+                                                            <span className={`inline-flex items-center justify-center w-11 h-11 rounded-2xl font-black text-sm shadow-sm ${deal.Score > 15 ? 'bg-emerald-600 text-white shadow-emerald-200' : 'bg-slate-100 text-slate-400'}`}>{deal.Score}</span>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-10">
+                                        {filteredDeals.map((deal) => (
+                                            <div key={deal.ID} className="bg-white p-12 rounded-[3rem] border border-slate-200 shadow-sm flex gap-12 hover:shadow-xl hover:shadow-blue-900/5 transition-all">
+                                                <div className="flex-1">
+                                                    <div className="flex gap-5 mb-8 items-center">
+                                                        <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-5 py-2.5 rounded-full uppercase tracking-widest border border-blue-100">{deal.Category}</span>
+                                                        <span className="text-sm text-slate-400 font-bold">{deal.Date}</span>
+                                                    </div>
+                                                    <h3 className="text-3xl font-black text-slate-900 mb-8 leading-[1.1] tracking-tight">{deal.Title}</h3>
+                                                    <div className="bg-slate-50/50 border-l-[6px] border-blue-600 p-8 rounded-[2rem] mb-10">
+                                                        <p className="text-[11px] font-black text-blue-600 uppercase tracking-[0.2em] mb-4 leading-none">Strategic Intelligence Insight</p>
+                                                        <p className="text-lg text-slate-800 font-medium italic leading-relaxed">"{deal.StrategicInsight}"</p>
+                                                    </div>
+                                                    <p className="text-slate-500 text-base leading-relaxed font-medium mb-10 line-clamp-3">{deal.Summary}</p>
+                                                    <div className="flex flex-wrap gap-12 pt-10 border-t border-slate-100 text-[11px] font-black uppercase tracking-wider">
+                                                        <div><p className="text-[9px] text-slate-400 mb-2 opacity-60">Partner A</p><span className="text-slate-900">{deal.PartnerA}</span></div>
+                                                        <div><p className="text-[9px] text-slate-400 mb-2 opacity-60">Partner B</p><span className="text-slate-900">{deal.PartnerB}</span></div>
+                                                        <div><p className="text-[9px] text-slate-400 mb-2 opacity-60">Valuation</p><span className="text-emerald-600">{deal.DealValue}</span></div>
+                                                    </div>
+                                                </div>
+                                                <div className="w-48 border-l border-slate-100 pl-12 flex flex-col justify-center items-center text-center shrink-0">
+                                                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-6 leading-none">Deal Score</p>
+                                                    <div className={`w-24 h-24 rounded-[2rem] flex items-center justify-center text-5xl font-black mb-10 shadow-lg ${deal.Score > 15 ? 'bg-emerald-600 text-white shadow-emerald-200' : 'bg-slate-900 text-white shadow-slate-200'}`}>{deal.Score}</div>
+                                                    <button className="bg-slate-100 text-slate-900 w-full py-5 rounded-3xl text-xs font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all shadow-sm active:scale-95">Full Data</button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )
+                            ) : (
+                                <div className="py-48 text-center text-slate-400 font-bold text-xl tracking-tight">No deals found matching your query.</div>
+                            )}
+                        </main>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
