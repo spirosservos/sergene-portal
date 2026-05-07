@@ -57,12 +57,8 @@
     <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@0.321.0/dist/umd/lucide.min.js"></script>
     
-    <!-- 
-        ORB BYPASS ENGINE: Hyparquet v0.2.1. 
-        Pure JavaScript implementation (No WebAssembly/WASM).
-        This specific version avoids the ERR_BLOCKED_BY_ORB security error in Chrome.
-    -->
-    <script src="https://unpkg.com/hyparquet@0.2.1/dist/hyparquet.min.js" crossorigin="anonymous"></script>
+    <!-- Primary Script Tag (Using JSDelivr as it often has better CORS headers than unpkg) -->
+    <script src="https://cdn.jsdelivr.net/npm/hyparquet@0.2.1/dist/hyparquet.min.js"></script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
@@ -94,15 +90,43 @@
             const [loadError, setLoadError] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
 
+            // Resilient Engine Loader: Tries multiple sources and methods
+            const ensureEngine = async () => {
+                if (window.hyparquet) return true;
+
+                const sources = [
+                    "https://cdn.jsdelivr.net/npm/hyparquet@0.2.1/dist/hyparquet.min.js",
+                    "https://unpkg.com/hyparquet@0.2.1/dist/hyparquet.min.js"
+                ];
+
+                for (let src of sources) {
+                    try {
+                        console.log(`Attempting to fetch engine from: ${src}`);
+                        const resp = await fetch(src);
+                        if (resp.ok) {
+                            const code = await resp.text();
+                            const script = document.createElement('script');
+                            script.text = code;
+                            document.head.appendChild(script);
+                            if (window.hyparquet) return true;
+                        }
+                    } catch (e) {
+                        console.warn(`Source failed: ${src}`, e);
+                    }
+                }
+                return !!window.hyparquet;
+            };
+
             useEffect(() => {
                 const init = async () => {
                     try {
+                        const engineReady = await ensureEngine();
+                        if (!engineReady) throw new Error("Parquet engine failed to initialize due to security blocks. Please try an Incognito window or a different browser.");
+
                         const resp = await fetch(`./${DB_FILENAME}?v=${Date.now()}`);
                         if (!resp.ok) throw new Error("Database not found. Ensure .parquet file is in the repo root.");
                         
                         const buffer = await resp.arrayBuffer();
-
-                        if (!window.hyparquet) throw new Error("Parquet engine failed to initialize.");
 
                         window.hyparquet.parquetRead({
                             file: buffer,
