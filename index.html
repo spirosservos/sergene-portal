@@ -57,7 +57,9 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@0.321.0/dist/umd/lucide.min.js"></script>
-    <script src="https://unpkg.com/hyparquet@0.4.0/dist/hyparquet.min.js"></script>
+    
+    <!-- Primary Parquet Engine Source -->
+    <script src="https://cdn.jsdelivr.net/npm/hyparquet@0.4.0/dist/hyparquet.min.js" crossorigin="anonymous"></script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
@@ -90,21 +92,33 @@
             const [loadError, setLoadError] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
 
+            // Secondary Fallback for Hyparquet (if the first script was blocked by ORB)
+            const ensureEngine = async () => {
+                if (window.hyparquet) return true;
+                
+                console.log("Primary Hyparquet blocked. Attempting fallback CDN...");
+                return new Promise((resolve) => {
+                    const script = document.createElement('script');
+                    script.src = "https://unpkg.com/hyparquet@0.4.0/dist/hyparquet.min.js";
+                    script.onload = () => resolve(!!window.hyparquet);
+                    script.onerror = () => resolve(false);
+                    document.head.appendChild(script);
+                });
+            };
+
             useEffect(() => {
                 const init = async () => {
                     try {
                         setIsLoading(true);
                         
-                        if (!window.hyparquet) {
-                            await new Promise(resolve => setTimeout(resolve, 800));
-                        }
-                        
-                        if (!window.hyparquet) {
-                            throw new Error("Parquet engine failed to load. Please check your connection and refresh.");
+                        const engineLoaded = await ensureEngine();
+                        if (!engineLoaded) {
+                            throw new Error("ORB/Security Block: The browser blocked the Parquet engine from loading. Try disabling 'Safe Browsing' temporarily or using a different browser (Chrome/Edge).");
                         }
 
-                        const resp = await fetch(`./${DB_FILENAME}`);
-                        if (!resp.ok) throw new Error(`Could not find ${DB_FILENAME}. Ensure the file is uploaded to your repo root.`);
+                        // Use a relative path with a cache-buster
+                        const resp = await fetch(`./${DB_FILENAME}?cache=${Date.now()}`);
+                        if (!resp.ok) throw new Error(`Could not find ${DB_FILENAME}. Ensure it's in the root folder.`);
                         
                         const buffer = await resp.arrayBuffer();
 
@@ -154,16 +168,16 @@
             if (isLoading) return (
                 <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white">
                     <div className="loader"></div>
-                    <p className="mt-4 text-xs font-bold opacity-50 uppercase tracking-widest">Parsing Intelligence...</p>
+                    <p className="mt-4 text-xs font-bold opacity-50 uppercase tracking-widest">Bypassing Security Gate...</p>
                 </div>
             );
             
             if (loadError) return (
                 <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-8 text-center">
                     <Icon name="AlertCircle" size={64} className="text-red-500 mb-4" />
-                    <h2 className="text-xl font-bold">Portal Error</h2>
+                    <h2 className="text-xl font-bold">Access Blocked</h2>
                     <p className="text-slate-500 mt-2 max-w-sm">{loadError}</p>
-                    <button onClick={() => window.location.reload()} className="mt-6 bg-blue-600 text-white px-8 py-2 rounded-lg font-bold">Retry App Load</button>
+                    <button onClick={() => window.location.reload()} className="mt-6 bg-blue-600 text-white px-8 py-2 rounded-lg font-bold">Try Refresh</button>
                 </div>
             );
 
@@ -177,23 +191,21 @@
                                 <p className="text-[9px] uppercase tracking-widest text-blue-400 mt-1">Intelligence</p>
                             </div>
                         </div>
-
                         <div className="flex-1 p-6">
                             <div className={`p-4 rounded-xl border ${isLoggedIn ? 'bg-emerald-600/10 border-emerald-500/20 text-emerald-400' : 'bg-slate-800/50 border-slate-700'}`}>
                                 <div className="flex items-center gap-3 mb-4">
                                     <Icon name={isLoggedIn ? "ShieldCheck" : "Lock"} size={20} className={isLoggedIn ? 'text-emerald-400' : 'text-blue-400'} />
-                                    <p className="text-xs font-bold text-white">{isLoggedIn ? 'Full Access' : 'Guest Mode'}</p>
+                                    <p className="text-xs font-bold text-white">{isLoggedIn ? 'Full Access' : 'Guest'}</p>
                                 </div>
                                 {!isLoggedIn && (
                                     <form onSubmit={handleLogin} className="space-y-2">
-                                        <input type="password" placeholder="Access Code" className={`w-full bg-slate-900 border ${authError ? 'border-red-500' : 'border-slate-700'} rounded-lg p-2 text-[10px] text-white outline-none`} value={passwordInput} onChange={e => setPasswordInput(e.target.value)} />
+                                        <input type="password" placeholder="Access Code" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-[10px] text-white outline-none" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} />
                                         <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-lg text-[10px] font-bold uppercase">Unlock</button>
                                     </form>
                                 )}
                             </div>
                         </div>
                     </aside>
-
                     <div className="flex-1 flex flex-col overflow-hidden">
                         <header className="h-20 bg-white border-b flex items-center justify-between px-8 shrink-0">
                             <h2 className="text-lg font-black uppercase tracking-tighter italic">Deal Portal</h2>
@@ -202,7 +214,6 @@
                                 <input type="text" placeholder="Search..." className="pl-10 pr-4 py-2 bg-slate-50 border rounded-xl text-sm w-72 outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                             </div>
                         </header>
-
                         <main className="flex-1 overflow-y-auto p-8">
                             <div className="bg-white rounded-2xl border shadow-sm overflow-x-auto">
                                 <table className="w-full text-left border-collapse min-w-[800px]">
@@ -213,27 +224,14 @@
                                         {filteredDeals.map(deal => (
                                             <tr key={deal.ID} className="hover:bg-slate-50/50 transition-colors">
                                                 <td className="p-5 font-bold text-slate-400">{deal.Date}</td>
-                                                <td className="p-5 max-w-md">
-                                                    <p className="font-black leading-snug">{deal.StrategicInsight}</p>
-                                                    <p className="text-[11px] text-slate-500 italic mt-1">{deal.Title}</p>
-                                                </td>
-                                                <td className="p-5">
-                                                    <p className="font-bold">{deal.PartnerA}</p>
-                                                    <p className="text-xs text-slate-400">{deal.PartnerB}</p>
-                                                </td>
+                                                <td className="p-5 max-w-md"><p className="font-black leading-snug">{deal.StrategicInsight}</p><p className="text-[11px] text-slate-500 italic mt-1">{deal.Title}</p></td>
+                                                <td className="p-5"><p className="font-bold">{deal.PartnerA}</p><p className="text-xs text-slate-400">{deal.PartnerB}</p></td>
                                                 <td className="p-5 font-black text-emerald-600">{deal.DealValue}</td>
-                                                <td className="p-5 text-center">
-                                                    <span className={`inline-flex items-center justify-center w-10 h-10 rounded-xl font-black ${deal.Score > 50 ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>
-                                                        {deal.Score}
-                                                    </span>
-                                                </td>
+                                                <td className="p-5 text-center"><span className={`inline-flex items-center justify-center w-10 h-10 rounded-xl font-black ${deal.Score > 50 ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>{deal.Score}</span></td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
-                                {filteredDeals.length === 0 && (
-                                    <div className="p-20 text-center text-slate-400 italic text-sm">No deals found.</div>
-                                )}
                             </div>
                         </main>
                     </div>
