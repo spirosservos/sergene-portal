@@ -24,12 +24,22 @@
 
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .loader { 
-            width: 48px; 
-            height: 48px; 
-            border: 5px solid rgba(59, 130, 246, 0.2); 
+            width: 40px; 
+            height: 40px; 
+            border: 4px solid rgba(59, 130, 246, 0.1); 
             border-top-color: #3b82f6; 
             border-radius: 50%; 
-            animation: spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite; 
+            animation: spin 0.8s linear infinite; 
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(226, 232, 240, 0.8);
         }
     </style>
 </head>
@@ -37,25 +47,22 @@
     <div id="root">
         <div style="height:100vh; width:100%; display:flex; align-items:center; justify-content:center; background:#0f172a; color:white; flex-direction:column;">
             <div class="loader"></div>
-            <div style="margin-top:24px; text-align:center;">
-                <p style="font-weight:900; letter-spacing:0.2em; font-size:14px; color:#3b82f6;">SERGENE BIOTECH</p>
-                <p style="margin-top:8px; font-weight:500; font-size:12px; opacity:0.4; text-transform:uppercase; letter-spacing:0.1em;">Initializing Intelligence Engine...</p>
-            </div>
+            <p style="margin-top:20px; font-weight:700; font-size:11px; letter-spacing:0.2em; color:#3b82f6; text-transform:uppercase;">Decrypting SerGene Intelligence...</p>
         </div>
     </div>
 
-    <!-- Core Dependencies -->
+    <!-- Core React Stack -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@0.321.0/dist/umd/lucide.min.js"></script>
     
     <!-- 
-        ORB BYPASS: Using Hyparquet v0.2.1. 
-        This is a Pure JavaScript version. It does NOT use WebAssembly (WASM).
-        Because it has no .wasm files, Chrome's ORB policy will not block it.
+        ORB BYPASS ENGINE: Hyparquet v0.2.1. 
+        Pure JavaScript implementation (No WebAssembly/WASM).
+        This specific version avoids the ERR_BLOCKED_BY_ORB security error in Chrome.
     -->
-    <script src="https://unpkg.com/hyparquet@0.2.1/dist/hyparquet.min.js"></script>
+    <script src="https://unpkg.com/hyparquet@0.2.1/dist/hyparquet.min.js" crossorigin="anonymous"></script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
@@ -72,8 +79,8 @@
                     }).join('');
                     setSvg(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}">${nested}</svg>`);
                 }
-            }, [name, size]);
-            return svg ? <span className="inline-flex" dangerouslySetInnerHTML={{ __html: svg }} /> : <div style={{width: size, height: size}} />;
+            }, [name, size, className]);
+            return svg ? <span className="inline-flex" dangerouslySetInnerHTML={{ __html: svg }} /> : null;
         };
 
         const DB_FILENAME = "sg_intel_assets.parquet"; 
@@ -82,7 +89,6 @@
         const App = () => {
             const [isLoggedIn, setIsLoggedIn] = useState(false);
             const [passwordInput, setPasswordInput] = useState('');
-            const [authError, setAuthError] = useState(false);
             const [allDeals, setAllDeals] = useState([]);
             const [isLoading, setIsLoading] = useState(true);
             const [loadError, setLoadError] = useState(null);
@@ -91,41 +97,35 @@
             useEffect(() => {
                 const init = async () => {
                     try {
-                        setIsLoading(true);
-                        
-                        // Check for engine
-                        if (!window.hyparquet) {
-                            await new Promise(r => setTimeout(r, 1000));
-                        }
-
-                        if (!window.hyparquet) {
-                            throw new Error("Intelligence Engine failed to initialize. Please check your internet connection.");
-                        }
-
-                        // Fetch file with cache-buster
                         const resp = await fetch(`./${DB_FILENAME}?v=${Date.now()}`);
-                        if (!resp.ok) throw new Error(`Database not found. Ensure ${DB_FILENAME} is in the root folder.`);
+                        if (!resp.ok) throw new Error("Database not found. Ensure .parquet file is in the repo root.");
                         
                         const buffer = await resp.arrayBuffer();
+
+                        if (!window.hyparquet) throw new Error("Parquet engine failed to initialize.");
 
                         window.hyparquet.parquetRead({
                             file: buffer,
                             onComplete: (rows) => {
-                                // We map using index positions [0, 1, 2...] which is much more stable 
-                                // than using column names which might have spaces or weird characters.
+                                // Mapped according to your specific Excel column structure [0-93] + extra [94]
                                 const formatted = rows.map((row, idx) => ({
                                     ID: row[0] || idx,
                                     Date: row[1] || '',
-                                    Title: row[2] || 'Untitled',
-                                    Category: row[3] || 'General',
-                                    StrategicInsight: row[5] || '', 
-                                    TherapeuticArea: row[6] || '',
+                                    Title: row[2] || 'Untitled Deal',
+                                    Category: row[3] || '',
+                                    Stage: row[4] || '',
+                                    Insight: row[5] || '',
+                                    Area: row[6] || '',
                                     Score: parseInt(row[7]) || 0,
+                                    Link: row[8] || '#',
                                     Summary: row[9] || '',
-                                    DealValue: row[10] || 'Undisclosed',
-                                    PartnerA: row[14] || '', 
+                                    Value: row[10] || 'Undisclosed',
+                                    Upfront: row[11] || '',
+                                    Milestones: row[12] || '',
+                                    Royalties: row[13] || '',
+                                    PartnerA: row[14] || '',
                                     PartnerB: row[15] || '',
-                                    Modalities: Array.isArray(row[19]) ? row[19] : []
+                                    ModalityTags: Array.isArray(row[94]) ? row[94] : []
                                 }));
                                 setAllDeals(formatted);
                                 setIsLoading(false);
@@ -139,19 +139,9 @@
                 init();
             }, []);
 
-            const handleLogin = (e) => {
-                e.preventDefault();
-                if (passwordInput === PORTAL_PASSWORD) {
-                    setIsLoggedIn(true);
-                    setAuthError(false);
-                } else {
-                    setAuthError(true);
-                }
-            };
-
             const filteredDeals = useMemo(() => {
                 const data = allDeals.filter(deal => {
-                    const content = `${deal.Title} ${deal.StrategicInsight} ${deal.PartnerA}`.toLowerCase();
+                    const content = `${deal.Title} ${deal.Insight} ${deal.PartnerA} ${deal.Area}`.toLowerCase();
                     return content.includes(searchTerm.toLowerCase());
                 });
                 return isLoggedIn ? data : data.slice(0, 15);
@@ -160,73 +150,121 @@
             if (isLoading) return (
                 <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white">
                     <div className="loader"></div>
-                    <p className="mt-4 text-xs font-bold opacity-40 uppercase tracking-widest animate-pulse">Syncing Intelligence...</p>
+                    <p className="mt-6 text-[10px] font-black tracking-[0.4em] opacity-40 uppercase">Syncing Intelligence</p>
                 </div>
             );
             
             if (loadError) return (
                 <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-12 text-center">
                     <Icon name="ShieldAlert" size={48} className="text-red-500 mb-4" />
-                    <h2 className="text-xl font-bold">Access Issue</h2>
+                    <h2 className="text-xl font-bold">Portal Connection Error</h2>
                     <p className="text-slate-500 mt-2 text-sm">{loadError}</p>
-                    <button onClick={() => window.location.reload()} className="mt-8 bg-blue-600 text-white px-10 py-3 rounded-xl font-bold shadow-lg shadow-blue-600/20">Retry</button>
+                    <button onClick={() => window.location.reload()} className="mt-8 bg-blue-600 text-white px-10 py-3 rounded-xl font-bold shadow-lg shadow-blue-600/20">Retry Connection</button>
                 </div>
             );
 
             return (
-                <div className="flex h-screen bg-slate-50 text-slate-900 font-sans">
-                    <aside className="w-72 bg-slate-900 text-slate-300 flex flex-col shrink-0 border-r border-slate-800">
-                        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-                            <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-black text-xs">SG</div>
-                            <h1 className="font-bold text-white tracking-tight">SerGene</h1>
-                        </div>
-                        <div className="flex-1 p-6">
-                            <div className={`p-4 rounded-xl border ${isLoggedIn ? 'bg-emerald-600/10 border-emerald-500/20 text-emerald-400' : 'bg-slate-800/50 border-slate-700'}`}>
-                                <div className="flex items-center gap-3 mb-4">
-                                    <Icon name={isLoggedIn ? "ShieldCheck" : "Lock"} size={18} />
-                                    <p className="text-xs font-bold uppercase tracking-widest">{isLoggedIn ? 'Full Access' : 'Guest'}</p>
+                <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
+                    {/* Sidebar */}
+                    <aside className="w-80 bg-slate-900 flex flex-col border-r border-slate-800 shrink-0">
+                        <div className="p-8 border-b border-slate-800">
+                            <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black italic text-xl shadow-lg shadow-blue-900/50">S</div>
+                                <div>
+                                    <h1 className="text-white font-black tracking-tight leading-none">SERGENE</h1>
+                                    <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mt-1">Biotech Intel</p>
                                 </div>
-                                {!isLoggedIn && (
-                                    <form onSubmit={handleLogin} className="space-y-2">
-                                        <input type="password" placeholder="Access Code" className={`w-full bg-slate-900 border ${authError ? 'border-red-500' : 'border-slate-700'} rounded-lg p-2 text-xs text-white outline-none`} value={passwordInput} onChange={e => setPasswordInput(e.target.value)} />
-                                        <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-lg text-xs font-bold uppercase tracking-widest">Unlock</button>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 p-8 space-y-8 overflow-y-auto custom-scrollbar">
+                            <div className={`p-6 rounded-2xl border transition-all duration-500 ${isLoggedIn ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-slate-800/40 border-slate-700'}`}>
+                                <div className="flex items-center gap-3 mb-6">
+                                    <Icon name={isLoggedIn ? "ShieldCheck" : "Lock"} size={16} className={isLoggedIn ? 'text-emerald-400' : 'text-blue-500'} />
+                                    <p className="text-[10px] font-black text-white tracking-widest uppercase">{isLoggedIn ? 'Access Granted' : 'Vault Locked'}</p>
+                                </div>
+                                {!isLoggedIn ? (
+                                    <form onSubmit={(e) => { e.preventDefault(); if(passwordInput === PORTAL_PASSWORD) setIsLoggedIn(true); }} className="space-y-3">
+                                        <input type="password" placeholder="Access Code" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white outline-none focus:border-blue-500 transition-all" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} />
+                                        <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-500 transition-all">Unlock Intelligence</button>
                                     </form>
+                                ) : (
+                                    <p className="text-[10px] text-emerald-400 font-bold leading-relaxed">You have full administrative access to the SerGene database.</p>
                                 )}
                             </div>
                         </div>
                     </aside>
-                    <div className="flex-1 flex flex-col overflow-hidden">
-                        <header className="h-16 bg-white border-b flex items-center justify-between px-8 shrink-0">
-                            <h2 className="text-xs font-black uppercase tracking-widest text-slate-400">Intelligence Portal</h2>
-                            <div className="relative">
-                                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Icon name="Search" size={14} /></div>
-                                <input type="text" placeholder="Filter..." className="pl-10 pr-4 py-2 bg-slate-50 border rounded-xl text-xs w-64 outline-none focus:bg-white transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+
+                    {/* Main Content */}
+                    <div className="flex-1 flex flex-col min-w-0">
+                        <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-10 shrink-0">
+                            <div className="flex items-center gap-4">
+                                <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+                                <h2 className="font-black text-slate-400 text-[10px] uppercase tracking-[0.2em] italic">Live Intelligence Database</h2>
+                            </div>
+                            <div className="relative group">
+                                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors"><Icon name="Search" size={16} /></div>
+                                <input type="text" placeholder="Search by deal, partner, or area..." className="pl-12 pr-6 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs w-[400px] outline-none focus:bg-white focus:ring-4 focus:ring-blue-50 transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                             </div>
                         </header>
-                        <main className="flex-1 overflow-y-auto p-8">
-                            <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
-                                <table className="w-full text-left border-collapse">
-                                    <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
-                                        <tr><th className="p-5">Date</th><th className="p-5">Insight</th><th className="p-5 text-right">Value</th><th className="p-5 text-center">Score</th></tr>
-                                    </thead>
-                                    <tbody className="divide-y text-xs">
-                                        {filteredDeals.map(deal => (
-                                            <tr key={deal.ID} className="hover:bg-slate-50/50 transition-colors">
-                                                <td className="p-5 font-bold text-slate-400 whitespace-nowrap">{deal.Date}</td>
-                                                <td className="p-5">
-                                                    <p className="font-bold text-slate-900 leading-snug">{deal.StrategicInsight}</p>
-                                                    <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-tighter">{deal.PartnerA} × {deal.PartnerB}</p>
-                                                </td>
-                                                <td className="p-5 text-right font-black text-emerald-600">{deal.DealValue}</td>
-                                                <td className="p-5 text-center">
-                                                    <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-bold ${deal.Score > 70 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                                                        {deal.Score}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+
+                        <main className="flex-1 overflow-y-auto p-10 custom-scrollbar">
+                            <div className="space-y-6 max-w-6xl mx-auto">
+                                {filteredDeals.map((deal) => (
+                                    <div key={deal.ID} className="bg-white border border-slate-200 rounded-3xl p-8 hover:shadow-xl hover:shadow-slate-200/50 transition-all duration-300 group">
+                                        <div className="flex justify-between items-start mb-6">
+                                            <div className="flex gap-3 items-center">
+                                                <div className="px-4 py-1.5 bg-slate-100 text-slate-500 rounded-full text-[9px] font-black uppercase tracking-widest">{deal.Date}</div>
+                                                <div className="px-4 py-1.5 bg-blue-50 text-blue-600 rounded-full text-[9px] font-black uppercase tracking-widest">{deal.Category}</div>
+                                                {deal.Stage && <div className="px-4 py-1.5 bg-indigo-50 text-indigo-600 rounded-full text-[9px] font-black uppercase tracking-widest">{deal.Stage}</div>}
+                                            </div>
+                                            <div className={`w-12 h-12 rounded-2xl flex flex-col items-center justify-center font-black transition-all ${deal.Score > 70 ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200' : 'bg-slate-100 text-slate-400'}`}>
+                                                <span className="text-[10px] opacity-60 leading-none">PT</span>
+                                                <span className="text-lg">{deal.Score}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+                                            <div className="lg:col-span-2">
+                                                <h3 className="text-xl font-black text-slate-900 leading-tight mb-4 group-hover:text-blue-600 transition-colors">{deal.Insight}</h3>
+                                                <p className="text-slate-500 text-sm leading-relaxed mb-8 line-clamp-3">{deal.Summary}</p>
+                                                
+                                                <div className="flex flex-wrap gap-2">
+                                                    {deal.ModalityTags.map(tag => (
+                                                        <span key={tag} className="px-3 py-1 bg-slate-50 text-slate-400 border border-slate-100 rounded-lg text-[9px] font-bold uppercase tracking-tight">{tag}</span>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            <div className="bg-slate-50 rounded-2xl p-6 flex flex-col justify-between border border-slate-100 h-full">
+                                                <div>
+                                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Strategic Partners</p>
+                                                    <div className="space-y-3">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-2 h-2 rounded-full bg-blue-600"></div>
+                                                            <p className="font-bold text-sm text-slate-900 truncate">{deal.PartnerA}</p>
+                                                        </div>
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-2 h-2 rounded-full bg-slate-300"></div>
+                                                            <p className="font-medium text-sm text-slate-500 truncate">{deal.PartnerB}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-10 pt-6 border-t border-slate-200">
+                                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Deal Value</p>
+                                                    <p className="text-2xl font-black text-emerald-600 leading-none tracking-tight">{deal.Value}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                                
+                                {!isLoggedIn && allDeals.length > 15 && (
+                                    <div className="p-16 text-center border-2 border-dashed border-slate-200 rounded-[2rem] bg-slate-50/50">
+                                        <Icon name="Lock" size={32} className="mx-auto text-slate-300 mb-4" />
+                                        <p className="text-slate-400 text-sm font-medium">Authentication required to view remaining {allDeals.length - 15} records.</p>
+                                    </div>
+                                )}
                             </div>
                         </main>
                     </div>
