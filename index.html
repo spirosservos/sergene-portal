@@ -4,10 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SerGene | Biotech Intelligence Portal</title>
-
-    <!-- Tailwind -->
     <script src="https://cdn.tailwindcss.com"></script>
-
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         
@@ -35,12 +32,6 @@
             animation: spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite; 
         }
     </style>
-
-    <!-- Apache Arrow (pure JS, no WASM, no ORB issues) -->
-    <script type="module" id="arrow-loader">
-        import { tableFromIPC } from "https://cdn.jsdelivr.net/npm/apache-arrow/+esm";
-        window.tableFromIPC = tableFromIPC;
-    </script>
 </head>
 <body>
     <div id="root">
@@ -48,7 +39,7 @@
             <div class="loader"></div>
             <div style="margin-top:24px; text-align:center;">
                 <p style="font-weight:900; letter-spacing:0.2em; font-size:14px; color:#3b82f6;">SERGENE BIOTECH</p>
-                <p style="margin-top:8px; font-weight:500; font-size:12px; opacity:0.4; text-transform:uppercase; letter-spacing:0.1em;">Loading Internal Engine...</p>
+                <p style="margin-top:8px; font-weight:500; font-size:12px; opacity:0.4; text-transform:uppercase; letter-spacing:0.1em;">Initializing Intelligence Engine...</p>
             </div>
         </div>
     </div>
@@ -58,6 +49,13 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@0.321.0/dist/umd/lucide.min.js"></script>
+    
+    <!-- 
+        ORB BYPASS: Using Hyparquet v0.2.1. 
+        This is a Pure JavaScript version. It does NOT use WebAssembly (WASM).
+        Because it has no .wasm files, Chrome's ORB policy will not block it.
+    -->
+    <script src="https://unpkg.com/hyparquet@0.2.1/dist/hyparquet.min.js"></script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
@@ -72,16 +70,14 @@
                         const a = Object.entries(cAttrs).map(([k, v]) => `${k}="${v}"`).join(' ');
                         return `<${cTag} ${a}></${cTag}>`;
                     }).join('');
-                    setSvg(
-                        `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}">${nested}</svg>`
-                    );
+                    setSvg(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}">${nested}</svg>`);
                 }
-            }, [name, size, className]);
-            return svg ? <span className="inline-flex" dangerouslySetInnerHTML={{ __html: svg }} /> : <div style={{ width: size, height: size }} />;
+            }, [name, size]);
+            return svg ? <span className="inline-flex" dangerouslySetInnerHTML={{ __html: svg }} /> : <div style={{width: size, height: size}} />;
         };
 
-        const DB_FILENAME = "sg_intel_assets.parquet";
-        const PORTAL_PASSWORD = "SerGene2024";
+        const DB_FILENAME = "sg_intel_assets.parquet"; 
+        const PORTAL_PASSWORD = "SerGene2024"; 
 
         const App = () => {
             const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -96,52 +92,50 @@
                 const init = async () => {
                     try {
                         setIsLoading(true);
+                        
+                        // Check for engine
+                        if (!window.hyparquet) {
+                            await new Promise(r => setTimeout(r, 1000));
+                        }
 
+                        if (!window.hyparquet) {
+                            throw new Error("Intelligence Engine failed to initialize. Please check your internet connection.");
+                        }
+
+                        // Fetch file with cache-buster
                         const resp = await fetch(`./${DB_FILENAME}?v=${Date.now()}`);
-                        if (!resp.ok) throw new Error(`Could not find data file: ${DB_FILENAME}`);
-
+                        if (!resp.ok) throw new Error(`Database not found. Ensure ${DB_FILENAME} is in the root folder.`);
+                        
                         const buffer = await resp.arrayBuffer();
 
-                        if (!window.tableFromIPC) {
-                            throw new Error("Arrow engine not available. Check network filters or script loading.");
-                        }
-
-                        const table = window.tableFromIPC(new Uint8Array(buffer));
-
-                        const rows = [];
-                        for (let i = 0; i < table.numRows; i++) {
-                            const row = {};
-                            table.schema.fields.forEach((field, colIndex) => {
-                                const col = table.getColumnAt(colIndex);
-                                row[field.name] = col.get(i);
-                            });
-                            rows.push(row);
-                        }
-
-                        const formatted = rows.map((row, idx) => ({
-                            ID: row.ID ?? idx,
-                            Date: row.Date ?? '',
-                            Title: row.Title ?? 'Untitled',
-                            Category: row.Category ?? 'General',
-                            StrategicInsight: row.StrategicInsight ?? '',
-                            TherapeuticArea: row.TherapeuticArea ?? '',
-                            Score: parseInt(row.Score ?? 0) || 0,
-                            Summary: row.Summary ?? '',
-                            DealValue: row.DealValue ?? 'Undisclosed',
-                            PartnerA: row.PartnerA ?? '',
-                            PartnerB: row.PartnerB ?? '',
-                            Modalities: Array.isArray(row.Modalities) ? row.Modalities : []
-                        }));
-
-                        setAllDeals(formatted);
-                        setIsLoading(false);
+                        window.hyparquet.parquetRead({
+                            file: buffer,
+                            onComplete: (rows) => {
+                                // We map using index positions [0, 1, 2...] which is much more stable 
+                                // than using column names which might have spaces or weird characters.
+                                const formatted = rows.map((row, idx) => ({
+                                    ID: row[0] || idx,
+                                    Date: row[1] || '',
+                                    Title: row[2] || 'Untitled',
+                                    Category: row[3] || 'General',
+                                    StrategicInsight: row[5] || '', 
+                                    TherapeuticArea: row[6] || '',
+                                    Score: parseInt(row[7]) || 0,
+                                    Summary: row[9] || '',
+                                    DealValue: row[10] || 'Undisclosed',
+                                    PartnerA: row[14] || '', 
+                                    PartnerB: row[15] || '',
+                                    Modalities: Array.isArray(row[19]) ? row[19] : []
+                                }));
+                                setAllDeals(formatted);
+                                setIsLoading(false);
+                            }
+                        });
                     } catch (err) {
-                        console.error(err);
                         setLoadError(err.message);
                         setIsLoading(false);
                     }
                 };
-
                 init();
             }, []);
 
@@ -163,33 +157,24 @@
                 return isLoggedIn ? data : data.slice(0, 15);
             }, [searchTerm, isLoggedIn, allDeals]);
 
-            if (isLoading) {
-                return (
-                    <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white">
-                        <div className="loader"></div>
-                        <p className="mt-4 text-xs font-bold opacity-40 uppercase tracking-widest">Parsing Intelligence...</p>
-                    </div>
-                );
-            }
-
-            if (loadError) {
-                return (
-                    <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-12 text-center">
-                        <Icon name="ShieldAlert" size={48} className="text-red-500 mb-4" />
-                        <h2 className="text-xl font-bold">Portal Connection Error</h2>
-                        <p className="text-slate-500 mt-2 text-sm">{loadError}</p>
-                        <button
-                            onClick={() => window.location.reload()}
-                            className="mt-8 bg-blue-600 text-white px-10 py-3 rounded-xl font-bold shadow-lg shadow-blue-600/20"
-                        >
-                            Retry Connection
-                        </button>
-                    </div>
-                );
-            }
+            if (isLoading) return (
+                <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white">
+                    <div className="loader"></div>
+                    <p className="mt-4 text-xs font-bold opacity-40 uppercase tracking-widest animate-pulse">Syncing Intelligence...</p>
+                </div>
+            );
+            
+            if (loadError) return (
+                <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-12 text-center">
+                    <Icon name="ShieldAlert" size={48} className="text-red-500 mb-4" />
+                    <h2 className="text-xl font-bold">Access Issue</h2>
+                    <p className="text-slate-500 mt-2 text-sm">{loadError}</p>
+                    <button onClick={() => window.location.reload()} className="mt-8 bg-blue-600 text-white px-10 py-3 rounded-xl font-bold shadow-lg shadow-blue-600/20">Retry</button>
+                </div>
+            );
 
             return (
-                <div className="flex h-screen bg-slate-50 text-slate-900">
+                <div className="flex h-screen bg-slate-50 text-slate-900 font-sans">
                     <aside className="w-72 bg-slate-900 text-slate-300 flex flex-col shrink-0 border-r border-slate-800">
                         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
                             <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-black text-xs">SG</div>
@@ -203,71 +188,38 @@
                                 </div>
                                 {!isLoggedIn && (
                                     <form onSubmit={handleLogin} className="space-y-2">
-                                        <input
-                                            type="password"
-                                            placeholder="Access Code"
-                                            className={`w-full bg-slate-900 border ${authError ? 'border-red-500' : 'border-slate-700'} rounded-lg p-2 text-xs text-white outline-none`}
-                                            value={passwordInput}
-                                            onChange={e => setPasswordInput(e.target.value)}
-                                        />
-                                        <button
-                                            type="submit"
-                                            className="w-full bg-blue-600 text-white py-2 rounded-lg text-xs font-bold uppercase tracking-widest"
-                                        >
-                                            Unlock
-                                        </button>
+                                        <input type="password" placeholder="Access Code" className={`w-full bg-slate-900 border ${authError ? 'border-red-500' : 'border-slate-700'} rounded-lg p-2 text-xs text-white outline-none`} value={passwordInput} onChange={e => setPasswordInput(e.target.value)} />
+                                        <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-lg text-xs font-bold uppercase tracking-widest">Unlock</button>
                                     </form>
                                 )}
                             </div>
                         </div>
                     </aside>
-
                     <div className="flex-1 flex flex-col overflow-hidden">
                         <header className="h-16 bg-white border-b flex items-center justify-between px-8 shrink-0">
-                            <h2 className="text-xs font-black uppercase tracking-widest text-slate-400 italic">Biotech Intelligence</h2>
+                            <h2 className="text-xs font-black uppercase tracking-widest text-slate-400">Intelligence Portal</h2>
                             <div className="relative">
-                                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                                    <Icon name="Search" size={14} />
-                                </div>
-                                <input
-                                    type="text"
-                                    placeholder="Filter Intel..."
-                                    className="pl-10 pr-4 py-2 bg-slate-50 border rounded-xl text-xs w-64 outline-none focus:bg-white transition-all"
-                                    value={searchTerm}
-                                    onChange={e => setSearchTerm(e.target.value)}
-                                />
+                                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Icon name="Search" size={14} /></div>
+                                <input type="text" placeholder="Filter..." className="pl-10 pr-4 py-2 bg-slate-50 border rounded-xl text-xs w-64 outline-none focus:bg-white transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                             </div>
                         </header>
-
                         <main className="flex-1 overflow-y-auto p-8">
                             <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
                                 <table className="w-full text-left border-collapse">
                                     <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
-                                        <tr>
-                                            <th className="p-5">Date</th>
-                                            <th className="p-5">Insight</th>
-                                            <th className="p-5">Partners</th>
-                                            <th className="p-5 text-right">Value</th>
-                                            <th className="p-5 text-center">Score</th>
-                                        </tr>
+                                        <tr><th className="p-5">Date</th><th className="p-5">Insight</th><th className="p-5 text-right">Value</th><th className="p-5 text-center">Score</th></tr>
                                     </thead>
                                     <tbody className="divide-y text-xs">
                                         {filteredDeals.map(deal => (
                                             <tr key={deal.ID} className="hover:bg-slate-50/50 transition-colors">
-                                                <td className="p-5 font-bold text-slate-400">{deal.Date}</td>
-                                                <td className="p-5 max-w-md font-bold leading-relaxed">{deal.StrategicInsight}</td>
-                                                <td className="p-5 opacity-60 font-medium">
-                                                    {deal.PartnerA} / {deal.PartnerB}
+                                                <td className="p-5 font-bold text-slate-400 whitespace-nowrap">{deal.Date}</td>
+                                                <td className="p-5">
+                                                    <p className="font-bold text-slate-900 leading-snug">{deal.StrategicInsight}</p>
+                                                    <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-tighter">{deal.PartnerA} × {deal.PartnerB}</p>
                                                 </td>
                                                 <td className="p-5 text-right font-black text-emerald-600">{deal.DealValue}</td>
                                                 <td className="p-5 text-center">
-                                                    <span
-                                                        className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-bold ${
-                                                            deal.Score > 70
-                                                                ? 'bg-emerald-100 text-emerald-700'
-                                                                : 'bg-slate-100 text-slate-400'
-                                                        }`}
-                                                    >
+                                                    <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-bold ${deal.Score > 70 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
                                                         {deal.Score}
                                                     </span>
                                                 </td>
