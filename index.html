@@ -35,18 +35,10 @@
             animation: spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite; 
         }
 
-        .glass-panel {
-            background: rgba(255, 255, 255, 0.8);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-        }
-
         .deal-row:hover {
             transform: translateY(-1px);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
         }
-
-        tr:last-child { border-bottom: none; }
     </style>
 </head>
 <body>
@@ -61,467 +53,15 @@
     </div>
 
     <!-- Core Dependencies -->
-    <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/lucide@0.321.0/dist/umd/lucide.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/hyparquet@0.4.0/dist/hyparquet.min.js"></script>
-
-    <script type="text/babel">
-        const { useState, useEffect, useMemo, useCallback } = React;
-
-        /**
-         * Robust Icon Renderer
-         * Uses Lucide's internal SVG definitions to manually build path strings.
-         */
-        const Icon = ({ name, size = 18, className = "", strokeWidth = 2 }) => {
-            const [svgContent, setSvgContent] = useState('');
-            
-            useEffect(() => {
-                const lucideGlobal = window.lucide;
-                if (lucideGlobal && lucideGlobal.icons && lucideGlobal.icons[name]) {
-                    const [tag, attrs, children] = lucideGlobal.icons[name];
-                    const content = children.map(([cTag, cAttrs]) => {
-                        const attrStr = Object.entries(cAttrs)
-                            .map(([k, v]) => `${k}="${v}"`)
-                            .join(' ');
-                        return `<${cTag} ${attrStr}></${cTag}>`;
-                    }).join('');
-                    setSvgContent(content);
-                }
-            }, [name]);
-
-            if (!svgContent) return <div style={{ width: size, height: size }} className={className} />;
-
-            return (
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width={size}
-                    height={size}
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={strokeWidth}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className={className}
-                    dangerouslySetInnerHTML={{ __html: svgContent }}
-                />
-            );
-        };
-
-        const DB_FILENAME = "sg_intel_assets.parquet"; 
-        const PORTAL_PASSWORD = "SerGene2024"; 
-
-        const App = () => {
-            // Auth & View State
-            const [isLoggedIn, setIsLoggedIn] = useState(false);
-            const [passwordInput, setPasswordInput] = useState('');
-            const [authError, setAuthError] = useState(false);
-            const [viewMode, setViewMode] = useState('interactive'); // 'interactive' or 'reading'
-
-            // Data State
-            const [allDeals, setAllDeals] = useState([]);
-            const [isLoading, setIsLoading] = useState(true);
-            const [loadError, setLoadError] = useState(null);
-
-            // Filter State
-            const [searchTerm, setSearchTerm] = useState('');
-            const [selectedCategories, setSelectedCategories] = useState([]);
-            const [selectedModalities, setSelectedModalities] = useState([]);
-            const [isModalityModalOpen, setIsModalityModalOpen] = useState(false);
-
-            // Fetch and Parse Parquet
-            useEffect(() => {
-                const loadDatabase = async () => {
-                    try {
-                        setIsLoading(true);
-                        // Relative path fetch to avoid CORS and GitHub Raw limitations
-                        const response = await fetch(`./${DB_FILENAME}`);
-                        
-                        if (!response.ok) {
-                            throw new Error(`Failed to locate ${DB_FILENAME}. Ensure it is in the root of your GitHub repository.`);
-                        }
-                        
-                        const buffer = await response.arrayBuffer();
-                        
-                        if (!window.hyparquet) {
-                            throw new Error("Parquet engine (hyparquet) failed to load.");
-                        }
-
-                        window.hyparquet.parquetRead({
-                            file: buffer,
-                            onComplete: (rows) => {
-                                const data = rows.map((row, idx) => ({
-                                    id: row[0] || `row-${idx}`,
-                                    date: row[1] || 'N/A',
-                                    title: row[2] || 'Untitled Project',
-                                    category: row[3] || 'Uncategorized',
-                                    insight: row[5] || '', 
-                                    therapeuticArea: row[6] || 'General',
-                                    score: parseInt(row[7]) || 0,
-                                    summary: row[9] || '',
-                                    value: row[10] || 'Undisclosed',
-                                    leadOrg: row[14] || 'N/A', 
-                                    partner: row[15] || 'N/A',
-                                    modalities: Array.isArray(row[row.length - 1]) ? row[row.length - 1] : []
-                                }));
-                                setAllDeals(data);
-                                setIsLoading(false);
-                            }
-                        });
-                    } catch (err) {
-                        console.error(err);
-                        setLoadError(err.message);
-                        setIsLoading(false);
-                    }
-                };
-                loadDatabase();
-            }, []);
-
-            const handleLogin = (e) => {
-                e.preventDefault();
-                if (passwordInput === PORTAL_PASSWORD) {
-                    setIsLoggedIn(true);
-                    setAuthError(false);
-                } else {
-                    setAuthError(true);
-                }
-            };
-
-            const toggleCategory = (cat) => {
-                setSelectedCategories(prev => 
-                    prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
-                );
-            };
-
-            const filteredDeals = useMemo(() => {
-                const filtered = allDeals.filter(deal => {
-                    const searchStr = `${deal.title} ${deal.insight} ${deal.leadOrg} ${deal.partner} ${deal.therapeuticArea}`.toLowerCase();
-                    const matchesSearch = searchStr.includes(searchTerm.toLowerCase());
-                    const matchesCategory = selectedCategories.length === 0 || selectedCategories.includes(deal.category);
-                    const matchesModality = selectedModalities.length === 0 || (deal.modalities && deal.modalities.some(m => selectedModalities.includes(m)));
-                    return matchesSearch && matchesCategory && matchesModality;
-                });
-                
-                // Restriction for guests
-                return isLoggedIn ? filtered : filtered.slice(0, 15);
-            }, [allDeals, searchTerm, selectedCategories, selectedModalities, isLoggedIn]);
-
-            // Unique Modalities for Filter
-            const availableModalities = useMemo(() => {
-                const mods = new Set();
-                allDeals.forEach(d => d.modalities?.forEach(m => mods.add(m)));
-                return Array.from(mods).sort();
-            }, [allDeals]);
-
-            if (isLoading) {
-                return (
-                    <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white">
-                        <div className="loader"></div>
-                        <p className="mt-6 text-[10px] font-black uppercase tracking-[0.3em] text-blue-500">Decrypting Parquet Data</p>
-                    </div>
-                );
-            }
-
-            if (loadError) {
-                return (
-                    <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-12 text-center">
-                        <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center text-red-600 mb-6">
-                            <Icon name="AlertTriangle" size={40} />
-                        </div>
-                        <h2 className="text-2xl font-black text-slate-900">Database Connection Failed</h2>
-                        <p className="text-slate-500 mt-3 max-w-md leading-relaxed">{loadError}</p>
-                        <div className="mt-8 flex gap-4">
-                            <button onClick={() => window.location.reload()} className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold text-sm shadow-xl hover:bg-slate-800 transition-all">Retry Connection</button>
-                            <a href="https://github.com" target="_blank" className="bg-white border border-slate-200 text-slate-600 px-8 py-3 rounded-xl font-bold text-sm hover:bg-slate-50 transition-all">Repo Settings</a>
-                        </div>
-                    </div>
-                );
-            }
-
-            return (
-                <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden">
-                    {/* SIDEBAR */}
-                    <aside className="w-80 bg-slate-950 text-slate-300 flex flex-col shrink-0 border-r border-slate-800 shadow-2xl z-20">
-                        <div className="p-8 border-b border-slate-800/50">
-                            <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
-                                    <Icon name="Activity" size={24} strokeWidth={3} />
-                                </div>
-                                <div>
-                                    <h1 className="font-black text-white leading-none tracking-tight text-xl italic">SerGene</h1>
-                                    <p className="text-[10px] uppercase tracking-[0.25em] text-blue-400 font-bold mt-1.5 opacity-80">Intelligence Portal</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <nav className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide">
-                            {/* Categories */}
-                            <div className="space-y-4">
-                                <h3 className="px-2 text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
-                                    <Icon name="Layers" size={12} /> Transaction Type
-                                </h3>
-                                <div className="space-y-1.5">
-                                    {['Financing/VC', 'Financial/M&A', 'Partnership/R&D', 'Clinical/Regulatory'].map(cat => (
-                                        <button 
-                                            key={cat} 
-                                            onClick={() => toggleCategory(cat)}
-                                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[12px] font-medium transition-all group ${selectedCategories.includes(cat) ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-white/5 text-slate-400'}`}
-                                        >
-                                            <Icon name={selectedCategories.includes(cat) ? "CheckCircle2" : "Circle"} size={16} />
-                                            {cat}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Modalities */}
-                            <div className="space-y-4">
-                                <h3 className="px-2 text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
-                                    <Icon name="Microscope" size={12} /> Science Filters
-                                </h3>
-                                <button 
-                                    onClick={() => setIsModalityModalOpen(true)}
-                                    className="w-full flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl p-4 text-[12px] hover:border-blue-500/50 transition-all group"
-                                >
-                                    <span className="text-slate-400 font-medium">
-                                        {selectedModalities.length > 0 ? `${selectedModalities.length} Modalities` : 'All Modalities'}
-                                    </span>
-                                    <Icon name="ChevronRight" size={14} className="text-slate-600 group-hover:text-blue-400 transition-colors" />
-                                </button>
-                            </div>
-                        </nav>
-
-                        {/* AUTH FOOTER */}
-                        <div className="p-6 border-t border-slate-800/50 bg-slate-900/50">
-                            <div className={`p-4 rounded-2xl border transition-all ${isLoggedIn ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-slate-900 border-slate-800'}`}>
-                                <div className="flex items-center gap-3 mb-4">
-                                    <div className={`p-2 rounded-lg ${isLoggedIn ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                                        <Icon name={isLoggedIn ? "ShieldCheck" : "Lock"} size={18} />
-                                    </div>
-                                    <div>
-                                        <p className="text-[11px] font-black text-white uppercase tracking-wider">{isLoggedIn ? 'Access Verified' : 'Portal Locked'}</p>
-                                        <p className="text-[9px] text-slate-500 font-bold tracking-tight">{isLoggedIn ? 'Full DB Access' : 'Limited Guest Mode'}</p>
-                                    </div>
-                                </div>
-                                
-                                {!isLoggedIn && (
-                                    <form onSubmit={handleLogin} className="space-y-2">
-                                        <input 
-                                            type="password" 
-                                            placeholder="Enter Access Key" 
-                                            className={`w-full bg-slate-950 border ${authError ? 'border-red-500' : 'border-slate-800'} rounded-lg p-2.5 text-[11px] text-white outline-none focus:border-blue-500 transition-colors`}
-                                            value={passwordInput}
-                                            onChange={e => setPasswordInput(e.target.value)}
-                                        />
-                                        <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-600/10">Unlock Portal</button>
-                                    </form>
-                                )}
-                            </div>
-                        </div>
-                    </aside>
-
-                    {/* MAIN CONTENT AREA */}
-                    <div className="flex-1 flex flex-col min-w-0 relative">
-                        <header className="h-24 bg-white/80 backdrop-blur-md border-b flex items-center justify-between px-10 shrink-0 sticky top-0 z-10">
-                            <div className="flex items-center gap-8">
-                                <h2 className="text-xl font-black text-slate-900 tracking-tighter uppercase italic">Deal Pulse</h2>
-                                <div className="flex bg-slate-100/80 p-1.5 rounded-xl border border-slate-200">
-                                    <button 
-                                        onClick={() => setViewMode('interactive')}
-                                        className={`px-6 py-2 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all ${viewMode === 'interactive' ? 'bg-white shadow-md text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                                    >
-                                        Interactive
-                                    </button>
-                                    <button 
-                                        onClick={() => setViewMode('reading')}
-                                        className={`px-6 py-2 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all ${viewMode === 'reading' ? 'bg-white shadow-md text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                                    >
-                                        Reading
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div className="relative group">
-                                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
-                                    <Icon name="Search" size={18} strokeWidth={2.5} />
-                                </div>
-                                <input 
-                                    type="text" 
-                                    placeholder="Search assets, partners, or insights..." 
-                                    className="pl-12 pr-6 py-3.5 bg-slate-100 border-none rounded-2xl text-[13px] w-96 outline-none ring-2 ring-transparent focus:ring-blue-500/20 focus:bg-white transition-all shadow-inner"
-                                    value={searchTerm}
-                                    onChange={e => setSearchTerm(e.target.value)}
-                                />
-                                {searchTerm && (
-                                    <button onClick={() => setSearchTerm('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500">
-                                        <Icon name="XCircle" size={16} />
-                                    </button>
-                                )}
-                            </div>
-                        </header>
-
-                        <main className="flex-1 overflow-y-auto p-10 space-y-8 scrollbar-hide">
-                            {!isLoggedIn && (
-                                <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-8 rounded-[2rem] text-white shadow-2xl shadow-blue-500/20 flex items-center justify-between overflow-hidden relative">
-                                    <div className="relative z-10">
-                                        <h3 className="text-2xl font-black tracking-tight">Guest Mode Active</h3>
-                                        <p className="mt-2 text-blue-100 text-sm max-w-lg font-medium">You are viewing a subset of our intelligence assets. For full deal descriptions, financial details, and strategic insights, please verify your credentials.</p>
-                                    </div>
-                                    <Icon name="Lock" size={120} className="absolute -right-8 -bottom-8 opacity-10 rotate-12" />
-                                </div>
-                            )}
-
-                            {viewMode === 'interactive' ? (
-                                <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-left border-collapse">
-                                            <thead>
-                                                <tr className="bg-slate-50/50 border-b border-slate-100">
-                                                    <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Date</th>
-                                                    <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Strategic Focus</th>
-                                                    <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Lead / Partner</th>
-                                                    <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Value</th>
-                                                    <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center">SerGene Score</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-50">
-                                                {filteredDeals.map(deal => (
-                                                    <tr key={deal.id} className="deal-row group transition-all">
-                                                        <td className="p-6">
-                                                            <div className="text-[12px] font-black text-slate-400 mb-1">{deal.date.split('-')[0]}</div>
-                                                            <div className="text-[11px] font-bold text-slate-900 uppercase tracking-tighter">{deal.date.split('-').slice(1).join('/')}</div>
-                                                        </td>
-                                                        <td className="p-6 max-w-lg">
-                                                            <div className="inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-black uppercase mb-2 tracking-widest">{deal.category}</div>
-                                                            <p className="text-[14px] font-black leading-tight text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-2">{deal.insight}</p>
-                                                            <p className="text-[11px] text-slate-400 font-medium italic mt-2 line-clamp-1">{deal.title}</p>
-                                                        </td>
-                                                        <td className="p-6">
-                                                            <p className="text-[13px] font-bold text-slate-900 leading-tight">{deal.leadOrg}</p>
-                                                            <div className="flex items-center gap-2 mt-1.5 opacity-40">
-                                                                <Icon name="ArrowRight" size={10} />
-                                                                <p className="text-[11px] font-bold text-slate-700 truncate">{deal.partner}</p>
-                                                            </div>
-                                                        </td>
-                                                        <td className="p-6">
-                                                            <p className={`text-[14px] font-black tracking-tighter ${deal.value.includes('$') ? 'text-emerald-600' : 'text-slate-400 italic'}`}>
-                                                                {deal.value}
-                                                            </p>
-                                                        </td>
-                                                        <td className="p-6 text-center">
-                                                            <div className={`inline-flex items-center justify-center w-12 h-12 rounded-2xl font-black text-sm shadow-sm transition-all ${deal.score > 70 ? 'bg-emerald-600 text-white shadow-emerald-600/20' : deal.score > 40 ? 'bg-amber-500 text-white shadow-amber-500/20' : 'bg-slate-100 text-slate-400'}`}>
-                                                                {deal.score}
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    {filteredDeals.length === 0 && (
-                                        <div className="p-20 text-center text-slate-400">
-                                            <Icon name="SearchX" size={48} className="mx-auto mb-4 opacity-20" />
-                                            <p className="text-sm font-bold uppercase tracking-widest">No matching insights found</p>
-                                        </div>
-                                    )}
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-                                    {filteredDeals.map(deal => (
-                                        <div key={deal.id} className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm hover:shadow-xl hover:shadow-slate-200/50 transition-all group flex flex-col">
-                                            <div className="flex justify-between items-start mb-6">
-                                                <div className="bg-slate-50 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest text-slate-400">{deal.date}</div>
-                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs ${deal.score > 70 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{deal.score}</div>
-                                            </div>
-                                            <h3 className="text-lg font-black leading-tight text-slate-900 mb-4 group-hover:text-blue-600 transition-colors">{deal.insight}</h3>
-                                            <p className="text-xs text-slate-500 leading-relaxed mb-6 line-clamp-3">{deal.summary || 'Strategic analysis pending completion by the SerGene team.'}</p>
-                                            <div className="mt-auto pt-6 border-t border-slate-50 space-y-4">
-                                                <div className="flex justify-between items-center text-[11px] font-bold">
-                                                    <span className="text-slate-400 uppercase tracking-widest">Value</span>
-                                                    <span className="text-emerald-600 font-black">{deal.value}</span>
-                                                </div>
-                                                <div className="flex justify-between items-center text-[11px] font-bold">
-                                                    <span className="text-slate-400 uppercase tracking-widest">Lead</span>
-                                                    <span className="text-slate-900 truncate ml-4">{deal.leadOrg}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </main>
-                    </div>
-
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SerGene | Biotech Intelligence Portal</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-        
-        :root {
-            --brand-blue: #3b82f6;
-            --brand-dark: #0f172a;
-        }
-
-        body { 
-            font-family: 'Inter', sans-serif; 
-            background-color: #f8fafc; 
-            margin: 0; 
-            overflow: hidden;
-        }
-
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-
-        #root { height: 100vh; width: 100vw; }
-
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .loader { 
-            width: 48px; 
-            height: 48px; 
-            border: 5px solid rgba(59, 130, 246, 0.2); 
-            border-top-color: #3b82f6; 
-            border-radius: 50%; 
-            animation: spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite; 
-        }
-
-        .deal-row:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
-        }
-    </style>
-</head>
-<body>
-    <div id="root">
-        <div style="height:100vh; width:100%; display:flex; align-items:center; justify-content:center; background:#0f172a; color:white; flex-direction:column;">
-            <div class="loader"></div>
-            <div style="margin-top:24px; text-align:center;">
-                <p style="font-weight:900; letter-spacing:0.2em; font-size:14px; color:#3b82f6;">SERGENE BIOTECH</p>
-                <p style="margin-top:8px; font-weight:500; font-size:12px; opacity:0.4; text-transform:uppercase; letter-spacing:0.1em;">Initializing Intelligence Engine...</p>
-            </div>
-        </div>
-    </div>
-
-    <!-- Enhanced Dependency Loading -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@0.321.0/dist/umd/lucide.min.js"></script>
-    <!-- Switching to unpkg for hyparquet to ensure global window availability -->
     <script src="https://unpkg.com/hyparquet@0.4.0/dist/hyparquet.min.js"></script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        /**
-         * Failsafe Icon Component
-         */
         const Icon = ({ name, size = 18, className = "" }) => {
             const [svg, setSvg] = useState('');
             useEffect(() => {
@@ -555,17 +95,16 @@
                     try {
                         setIsLoading(true);
                         
-                        // Check if hyparquet is ready, if not, wait 500ms and try one more time
                         if (!window.hyparquet) {
-                            await new Promise(resolve => setTimeout(resolve, 500));
+                            await new Promise(resolve => setTimeout(resolve, 800));
                         }
                         
                         if (!window.hyparquet) {
-                            throw new Error("The Parquet parsing engine failed to load from the CDN. Please check your internet connection or try refreshing.");
+                            throw new Error("Parquet engine failed to load. Please check your connection and refresh.");
                         }
 
                         const resp = await fetch(`./${DB_FILENAME}`);
-                        if (!resp.ok) throw new Error(`Could not find ${DB_FILENAME} in repository root.`);
+                        if (!resp.ok) throw new Error(`Could not find ${DB_FILENAME}. Ensure the file is uploaded to your repo root.`);
                         
                         const buffer = await resp.arrayBuffer();
 
@@ -612,14 +151,19 @@
                 return isLoggedIn ? data : data.slice(0, 20);
             }, [searchTerm, isLoggedIn, allDeals]);
 
-            if (isLoading) return <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white"><div className="loader"></div><p className="mt-4 text-xs font-bold opacity-50 uppercase tracking-widest">Parsing Database...</p></div>;
+            if (isLoading) return (
+                <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white">
+                    <div className="loader"></div>
+                    <p className="mt-4 text-xs font-bold opacity-50 uppercase tracking-widest">Parsing Intelligence...</p>
+                </div>
+            );
             
             if (loadError) return (
                 <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-8 text-center">
                     <Icon name="AlertCircle" size={64} className="text-red-500 mb-4" />
-                    <h2 className="text-xl font-bold">Connection Failed</h2>
+                    <h2 className="text-xl font-bold">Portal Error</h2>
                     <p className="text-slate-500 mt-2 max-w-sm">{loadError}</p>
-                    <button onClick={() => window.location.reload()} className="mt-6 bg-blue-600 text-white px-8 py-2 rounded-lg font-bold shadow-lg shadow-blue-600/20">Retry App Load</button>
+                    <button onClick={() => window.location.reload()} className="mt-6 bg-blue-600 text-white px-8 py-2 rounded-lg font-bold">Retry App Load</button>
                 </div>
             );
 
@@ -669,17 +213,27 @@
                                         {filteredDeals.map(deal => (
                                             <tr key={deal.ID} className="hover:bg-slate-50/50 transition-colors">
                                                 <td className="p-5 font-bold text-slate-400">{deal.Date}</td>
-                                                <td className="p-5 max-w-md"><p className="font-black leading-snug">{deal.StrategicInsight}</p><p className="text-[11px] text-slate-500 italic mt-1">{deal.Title}</p></td>
+                                                <td className="p-5 max-w-md">
+                                                    <p className="font-black leading-snug">{deal.StrategicInsight}</p>
+                                                    <p className="text-[11px] text-slate-500 italic mt-1">{deal.Title}</p>
+                                                </td>
                                                 <td className="p-5">
                                                     <p className="font-bold">{deal.PartnerA}</p>
                                                     <p className="text-xs text-slate-400">{deal.PartnerB}</p>
                                                 </td>
                                                 <td className="p-5 font-black text-emerald-600">{deal.DealValue}</td>
-                                                <td className="p-5 text-center"><span className={`inline-flex items-center justify-center w-10 h-10 rounded-xl font-black ${deal.Score > 15 ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>{deal.Score}</span></td>
+                                                <td className="p-5 text-center">
+                                                    <span className={`inline-flex items-center justify-center w-10 h-10 rounded-xl font-black ${deal.Score > 50 ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>
+                                                        {deal.Score}
+                                                    </span>
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
+                                {filteredDeals.length === 0 && (
+                                    <div className="p-20 text-center text-slate-400 italic text-sm">No deals found.</div>
+                                )}
                             </div>
                         </main>
                     </div>
