@@ -58,8 +58,8 @@
     <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@0.321.0/dist/umd/lucide.min.js"></script>
     
-    <!-- Primary Parquet Engine Source -->
-    <script src="https://cdn.jsdelivr.net/npm/hyparquet@0.4.0/dist/hyparquet.min.js" crossorigin="anonymous"></script>
+    <!-- We try to load it traditionally first -->
+    <script src="https://cdn.jsdelivr.net/npm/hyparquet@0.4.0/dist/hyparquet.min.js"></script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
@@ -92,18 +92,39 @@
             const [loadError, setLoadError] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
 
-            // Secondary Fallback for Hyparquet (if the first script was blocked by ORB)
-            const ensureEngine = async () => {
+            /**
+             * Enhanced Engine Loader
+             * Tries multiple CDNs using dynamic script injection to bypass ORB
+             */
+            const loadEngine = async () => {
                 if (window.hyparquet) return true;
-                
-                console.log("Primary Hyparquet blocked. Attempting fallback CDN...");
-                return new Promise((resolve) => {
-                    const script = document.createElement('script');
-                    script.src = "https://unpkg.com/hyparquet@0.4.0/dist/hyparquet.min.js";
-                    script.onload = () => resolve(!!window.hyparquet);
-                    script.onerror = () => resolve(false);
-                    document.head.appendChild(script);
-                });
+
+                const urls = [
+                    "https://unpkg.com/hyparquet@0.4.0/dist/hyparquet.min.js",
+                    "https://cdn.jsdelivr.net/npm/hyparquet@0.4.0/dist/hyparquet.min.js",
+                    "https://cdnjs.cloudflare.com/ajax/libs/hyparquet/0.4.0/hyparquet.min.js"
+                ];
+
+                for (const url of urls) {
+                    try {
+                        console.log(`Attempting to load engine from: ${url}`);
+                        const loaded = await new Promise((resolve) => {
+                            const script = document.createElement('script');
+                            script.src = url;
+                            script.async = true;
+                            script.onload = () => resolve(!!window.hyparquet);
+                            script.onerror = () => resolve(false);
+                            document.head.appendChild(script);
+                            
+                            // Timeout for this specific URL
+                            setTimeout(() => resolve(false), 3000);
+                        });
+                        if (loaded) return true;
+                    } catch (e) {
+                        console.warn(`Failed to load from ${url}`);
+                    }
+                }
+                return false;
             };
 
             useEffect(() => {
@@ -111,14 +132,14 @@
                     try {
                         setIsLoading(true);
                         
-                        const engineLoaded = await ensureEngine();
-                        if (!engineLoaded) {
-                            throw new Error("ORB/Security Block: The browser blocked the Parquet engine from loading. Try disabling 'Safe Browsing' temporarily or using a different browser (Chrome/Edge).");
+                        const engineReady = await loadEngine();
+                        if (!engineReady) {
+                            throw new Error("Security Block (ORB): The browser's security policy is preventing the Parquet engine from loading. Please try a different network or browser (like Firefox) or check if an ad-blocker is filtering 'hyparquet.min.js'.");
                         }
 
-                        // Use a relative path with a cache-buster
-                        const resp = await fetch(`./${DB_FILENAME}?cache=${Date.now()}`);
-                        if (!resp.ok) throw new Error(`Could not find ${DB_FILENAME}. Ensure it's in the root folder.`);
+                        // Fetch the database file with a cache-buster
+                        const resp = await fetch(`./${DB_FILENAME}?v=${Date.now()}`);
+                        if (!resp.ok) throw new Error(`Database File Not Found: Could not find ${DB_FILENAME} in the repository root.`);
                         
                         const buffer = await resp.arrayBuffer();
 
@@ -168,16 +189,21 @@
             if (isLoading) return (
                 <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white">
                     <div className="loader"></div>
-                    <p className="mt-4 text-xs font-bold opacity-50 uppercase tracking-widest">Bypassing Security Gate...</p>
+                    <p className="mt-4 text-xs font-bold opacity-50 uppercase tracking-widest animate-pulse">Establishing Secure Connection...</p>
                 </div>
             );
             
             if (loadError) return (
                 <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-8 text-center">
-                    <Icon name="AlertCircle" size={64} className="text-red-500 mb-4" />
-                    <h2 className="text-xl font-bold">Access Blocked</h2>
-                    <p className="text-slate-500 mt-2 max-w-sm">{loadError}</p>
-                    <button onClick={() => window.location.reload()} className="mt-6 bg-blue-600 text-white px-8 py-2 rounded-lg font-bold">Try Refresh</button>
+                    <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center text-red-500 mb-6 mx-auto">
+                        <Icon name="ShieldAlert" size={32} />
+                    </div>
+                    <h2 className="text-xl font-bold text-slate-900">Security / Access Issue</h2>
+                    <p className="text-slate-500 mt-4 max-w-sm mx-auto leading-relaxed text-sm">{loadError}</p>
+                    <div className="mt-8 flex flex-col gap-3 max-w-xs mx-auto">
+                        <button onClick={() => window.location.reload()} className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all">Reload Portal</button>
+                        <p className="text-[10px] text-slate-400 font-medium">If this persists, try Chrome Incognito or a different network.</p>
+                    </div>
                 </div>
             );
 
@@ -199,8 +225,8 @@
                                 </div>
                                 {!isLoggedIn && (
                                     <form onSubmit={handleLogin} className="space-y-2">
-                                        <input type="password" placeholder="Access Code" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-[10px] text-white outline-none" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} />
-                                        <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-lg text-[10px] font-bold uppercase">Unlock</button>
+                                        <input type="password" placeholder="Access Code" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-[10px] text-white outline-none focus:border-blue-500 transition-all" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} />
+                                        <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-lg text-[10px] font-bold uppercase hover:bg-blue-500 transition-all">Unlock</button>
                                     </form>
                                 )}
                             </div>
@@ -211,7 +237,7 @@
                             <h2 className="text-lg font-black uppercase tracking-tighter italic">Deal Portal</h2>
                             <div className="relative">
                                 <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Icon name="Search" size={16} /></div>
-                                <input type="text" placeholder="Search..." className="pl-10 pr-4 py-2 bg-slate-50 border rounded-xl text-sm w-72 outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                                <input type="text" placeholder="Search..." className="pl-10 pr-4 py-2 bg-slate-50 border rounded-xl text-sm w-72 outline-none focus:bg-white focus:ring-2 focus:ring-blue-100 transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                             </div>
                         </header>
                         <main className="flex-1 overflow-y-auto p-8">
