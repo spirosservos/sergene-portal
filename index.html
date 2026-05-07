@@ -20,9 +20,6 @@
             overflow: hidden;
         }
 
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-
         #root { height: 100vh; width: 100vw; }
 
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -34,11 +31,6 @@
             border-radius: 50%; 
             animation: spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite; 
         }
-
-        .deal-row:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
-        }
     </style>
 </head>
 <body>
@@ -47,7 +39,7 @@
             <div class="loader"></div>
             <div style="margin-top:24px; text-align:center;">
                 <p style="font-weight:900; letter-spacing:0.2em; font-size:14px; color:#3b82f6;">SERGENE BIOTECH</p>
-                <p style="margin-top:8px; font-weight:500; font-size:12px; opacity:0.4; text-transform:uppercase; letter-spacing:0.1em;">Initializing Intelligence Engine...</p>
+                <p style="margin-top:8px; font-weight:500; font-size:12px; opacity:0.4; text-transform:uppercase; letter-spacing:0.1em;">Loading Clean Engine...</p>
             </div>
         </div>
     </div>
@@ -58,8 +50,11 @@
     <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@0.321.0/dist/umd/lucide.min.js"></script>
     
-    <!-- We try to load it traditionally first -->
-    <script src="https://cdn.jsdelivr.net/npm/hyparquet@0.4.0/dist/hyparquet.min.js"></script>
+    <!-- 
+        ORB BYPASS: Using a pure JS version of hyparquet (0.2.0).
+        This version does not use WASM files, so Chrome will not block it.
+    -->
+    <script src="https://cdn.jsdelivr.net/npm/hyparquet@0.2.0/dist/hyparquet.min.js" crossorigin="anonymous"></script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
@@ -92,57 +87,29 @@
             const [loadError, setLoadError] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
 
-            /**
-             * Enhanced Engine Loader
-             * Tries multiple CDNs using dynamic script injection to bypass ORB
-             */
-            const loadEngine = async () => {
-                if (window.hyparquet) return true;
-
-                const urls = [
-                    "https://unpkg.com/hyparquet@0.4.0/dist/hyparquet.min.js",
-                    "https://cdn.jsdelivr.net/npm/hyparquet@0.4.0/dist/hyparquet.min.js",
-                    "https://cdnjs.cloudflare.com/ajax/libs/hyparquet/0.4.0/hyparquet.min.js"
-                ];
-
-                for (const url of urls) {
-                    try {
-                        console.log(`Attempting to load engine from: ${url}`);
-                        const loaded = await new Promise((resolve) => {
-                            const script = document.createElement('script');
-                            script.src = url;
-                            script.async = true;
-                            script.onload = () => resolve(!!window.hyparquet);
-                            script.onerror = () => resolve(false);
-                            document.head.appendChild(script);
-                            
-                            // Timeout for this specific URL
-                            setTimeout(() => resolve(false), 3000);
-                        });
-                        if (loaded) return true;
-                    } catch (e) {
-                        console.warn(`Failed to load from ${url}`);
-                    }
-                }
-                return false;
-            };
-
             useEffect(() => {
                 const init = async () => {
                     try {
                         setIsLoading(true);
                         
-                        const engineReady = await loadEngine();
-                        if (!engineReady) {
-                            throw new Error("Security Block (ORB): The browser's security policy is preventing the Parquet engine from loading. Please try a different network or browser (like Firefox) or check if an ad-blocker is filtering 'hyparquet.min.js'.");
+                        // Wait for hyparquet to register in the window
+                        let checks = 0;
+                        while (!window.hyparquet && checks < 10) {
+                            await new Promise(r => setTimeout(r, 300));
+                            checks++;
                         }
 
-                        // Fetch the database file with a cache-buster
+                        if (!window.hyparquet) {
+                            throw new Error("Engine initialization failed. Chrome may be blocking the external script. Try an Incognito window.");
+                        }
+
+                        // Fetch the database file
                         const resp = await fetch(`./${DB_FILENAME}?v=${Date.now()}`);
-                        if (!resp.ok) throw new Error(`Database File Not Found: Could not find ${DB_FILENAME} in the repository root.`);
+                        if (!resp.ok) throw new Error(`Could not find data file: ${DB_FILENAME}`);
                         
                         const buffer = await resp.arrayBuffer();
 
+                        // Version 0.2.0 compatibility
                         window.hyparquet.parquetRead({
                             file: buffer,
                             onComplete: (rows) => {
@@ -183,27 +150,22 @@
                     const content = `${deal.Title} ${deal.StrategicInsight} ${deal.PartnerA}`.toLowerCase();
                     return content.includes(searchTerm.toLowerCase());
                 });
-                return isLoggedIn ? data : data.slice(0, 20);
+                return isLoggedIn ? data : data.slice(0, 15);
             }, [searchTerm, isLoggedIn, allDeals]);
 
             if (isLoading) return (
                 <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white">
                     <div className="loader"></div>
-                    <p className="mt-4 text-xs font-bold opacity-50 uppercase tracking-widest animate-pulse">Establishing Secure Connection...</p>
+                    <p className="mt-4 text-xs font-bold opacity-40 uppercase tracking-widest">Parsing Intelligence...</p>
                 </div>
             );
             
             if (loadError) return (
-                <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-8 text-center">
-                    <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center text-red-500 mb-6 mx-auto">
-                        <Icon name="ShieldAlert" size={32} />
-                    </div>
-                    <h2 className="text-xl font-bold text-slate-900">Security / Access Issue</h2>
-                    <p className="text-slate-500 mt-4 max-w-sm mx-auto leading-relaxed text-sm">{loadError}</p>
-                    <div className="mt-8 flex flex-col gap-3 max-w-xs mx-auto">
-                        <button onClick={() => window.location.reload()} className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all">Reload Portal</button>
-                        <p className="text-[10px] text-slate-400 font-medium">If this persists, try Chrome Incognito or a different network.</p>
-                    </div>
+                <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-12 text-center">
+                    <Icon name="ShieldAlert" size={48} className="text-red-500 mb-4" />
+                    <h2 className="text-xl font-bold">Portal Connection Error</h2>
+                    <p className="text-slate-500 mt-2 text-sm">{loadError}</p>
+                    <button onClick={() => window.location.reload()} className="mt-8 bg-blue-600 text-white px-10 py-3 rounded-xl font-bold shadow-lg shadow-blue-600/20">Retry Connection</button>
                 </div>
             );
 
@@ -211,49 +173,50 @@
                 <div className="flex h-screen bg-slate-50 text-slate-900">
                     <aside className="w-72 bg-slate-900 text-slate-300 flex flex-col shrink-0 border-r border-slate-800">
                         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-                            <div className="w-9 h-9 bg-blue-600 rounded flex items-center justify-center text-white font-black text-xs">SG</div>
-                            <div>
-                                <h1 className="font-bold text-white leading-none">SerGene</h1>
-                                <p className="text-[9px] uppercase tracking-widest text-blue-400 mt-1">Intelligence</p>
-                            </div>
+                            <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-black text-xs">SG</div>
+                            <h1 className="font-bold text-white tracking-tight">SerGene</h1>
                         </div>
                         <div className="flex-1 p-6">
                             <div className={`p-4 rounded-xl border ${isLoggedIn ? 'bg-emerald-600/10 border-emerald-500/20 text-emerald-400' : 'bg-slate-800/50 border-slate-700'}`}>
                                 <div className="flex items-center gap-3 mb-4">
-                                    <Icon name={isLoggedIn ? "ShieldCheck" : "Lock"} size={20} className={isLoggedIn ? 'text-emerald-400' : 'text-blue-400'} />
-                                    <p className="text-xs font-bold text-white">{isLoggedIn ? 'Full Access' : 'Guest'}</p>
+                                    <Icon name={isLoggedIn ? "ShieldCheck" : "Lock"} size={18} />
+                                    <p className="text-xs font-bold uppercase tracking-widest">{isLoggedIn ? 'Full Access' : 'Guest'}</p>
                                 </div>
                                 {!isLoggedIn && (
                                     <form onSubmit={handleLogin} className="space-y-2">
-                                        <input type="password" placeholder="Access Code" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-[10px] text-white outline-none focus:border-blue-500 transition-all" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} />
-                                        <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-lg text-[10px] font-bold uppercase hover:bg-blue-500 transition-all">Unlock</button>
+                                        <input type="password" placeholder="Access Code" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white outline-none" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} />
+                                        <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-lg text-xs font-bold uppercase tracking-widest">Unlock</button>
                                     </form>
                                 )}
                             </div>
                         </div>
                     </aside>
                     <div className="flex-1 flex flex-col overflow-hidden">
-                        <header className="h-20 bg-white border-b flex items-center justify-between px-8 shrink-0">
-                            <h2 className="text-lg font-black uppercase tracking-tighter italic">Deal Portal</h2>
+                        <header className="h-16 bg-white border-b flex items-center justify-between px-8 shrink-0">
+                            <h2 className="text-xs font-black uppercase tracking-widest text-slate-400 italic italic">Biotech Intelligence</h2>
                             <div className="relative">
-                                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Icon name="Search" size={16} /></div>
-                                <input type="text" placeholder="Search..." className="pl-10 pr-4 py-2 bg-slate-50 border rounded-xl text-sm w-72 outline-none focus:bg-white focus:ring-2 focus:ring-blue-100 transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Icon name="Search" size={14} /></div>
+                                <input type="text" placeholder="Filter Intel..." className="pl-10 pr-4 py-2 bg-slate-50 border rounded-xl text-xs w-64 outline-none focus:bg-white transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                             </div>
                         </header>
                         <main className="flex-1 overflow-y-auto p-8">
-                            <div className="bg-white rounded-2xl border shadow-sm overflow-x-auto">
-                                <table className="w-full text-left border-collapse min-w-[800px]">
+                            <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+                                <table className="w-full text-left border-collapse">
                                     <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
-                                        <tr><th className="p-5">Date</th><th className="p-5">Strategic Focus</th><th className="p-5">Lead / Partner</th><th className="p-5">Value</th><th className="p-5 text-center">Score</th></tr>
+                                        <tr><th className="p-5">Date</th><th className="p-5">Insight</th><th className="p-5">Partners</th><th className="p-5 text-right">Value</th><th className="p-5 text-center">Score</th></tr>
                                     </thead>
-                                    <tbody className="divide-y text-sm">
+                                    <tbody className="divide-y text-xs">
                                         {filteredDeals.map(deal => (
                                             <tr key={deal.ID} className="hover:bg-slate-50/50 transition-colors">
                                                 <td className="p-5 font-bold text-slate-400">{deal.Date}</td>
-                                                <td className="p-5 max-w-md"><p className="font-black leading-snug">{deal.StrategicInsight}</p><p className="text-[11px] text-slate-500 italic mt-1">{deal.Title}</p></td>
-                                                <td className="p-5"><p className="font-bold">{deal.PartnerA}</p><p className="text-xs text-slate-400">{deal.PartnerB}</p></td>
-                                                <td className="p-5 font-black text-emerald-600">{deal.DealValue}</td>
-                                                <td className="p-5 text-center"><span className={`inline-flex items-center justify-center w-10 h-10 rounded-xl font-black ${deal.Score > 50 ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>{deal.Score}</span></td>
+                                                <td className="p-5 max-w-md font-bold leading-relaxed">{deal.StrategicInsight}</td>
+                                                <td className="p-5 opacity-60 font-medium">{deal.PartnerA} / {deal.PartnerB}</td>
+                                                <td className="p-5 text-right font-black text-emerald-600">{deal.DealValue}</td>
+                                                <td className="p-5 text-center">
+                                                    <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-bold ${deal.Score > 70 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                                                        {deal.Score}
+                                                    </span>
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
