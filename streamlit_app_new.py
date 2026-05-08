@@ -88,10 +88,16 @@ try:
     # 3. Sidebar Filters & Authentication
     st.sidebar.title("SerGene Intel")
     
-    # Password Protection Logic
+    # Password Protection Logic (Using Secrets with Hardcoded Fallback)
     with st.sidebar.expander("🔐 Secure Access", expanded=True):
-        password = st.text_input("Access Code", type="password")
-        is_authenticated = (password == "SerGene2024")
+        # We try to get the password from Streamlit Secrets, fallback to 'SerGene2024'
+        try:
+            CORRECT_PASSWORD = st.secrets["access_password"]
+        except:
+            CORRECT_PASSWORD = "SerGene2024"
+            
+        password_input = st.text_input("Access Code", type="password")
+        is_authenticated = (password_input == CORRECT_PASSWORD)
         
         if is_authenticated:
             st.success("Full Access Granted")
