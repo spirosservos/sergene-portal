@@ -29,7 +29,7 @@ def parse_currency(val_str):
         return 0.0
     except: return 0.0
 
-# 2. Refined Styles
+# 2. Styles
 st.markdown("""
     <style>
     .deal-card {
@@ -40,6 +40,14 @@ st.markdown("""
         margin-bottom: 2rem;
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
     }
+    .date-text {
+        color: #94a3b8;
+        font-size: 0.75rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+    }
     .parent-tag {
         background-color: #eff6ff;
         color: #1e40af;
@@ -49,7 +57,6 @@ st.markdown("""
         font-weight: 800;
         text-transform: uppercase;
         border: 1px solid #bfdbfe;
-        letter-spacing: 0.05em;
     }
     .source-link { color: #3b82f6; text-decoration: none; font-weight: 800; }
     .source-link:hover { text-decoration: underline; color: #2563eb; }
@@ -65,13 +72,6 @@ st.markdown("""
         margin-bottom: 0.5rem;
         border: 1px solid #e2e8f0;
         text-transform: uppercase;
-    }
-    .ratio-bar-bg {
-        height: 10px;
-        background-color: #f1f5f9;
-        border-radius: 5px;
-        margin-top: 8px;
-        overflow: hidden;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -90,10 +90,13 @@ def load_and_refine_data():
         tags = row.get('ModalityTags', [])
         if not isinstance(tags, (list, np.ndarray)): tags = []
         
+        # Robust Modality Matching
         parent = "Other"
-        for p_mod, keywords in MODALITY_GROUPS.items():
-            if any(tag in keywords for tag in tags):
-                parent = p_mod
+        norm_tags = [t.lower().strip() for t in tags]
+        for group_name, keywords in MODALITY_GROUPS.items():
+            lower_kws = [k.lower().strip() for k in keywords]
+            if any(t in lower_kws for t in norm_tags):
+                parent = group_name
                 break
         
         val_m = parse_currency(row.get('DealValue', ''))
@@ -103,6 +106,7 @@ def load_and_refine_data():
         refined_rows.append({
             'ID': row.get('ID'),
             'Date': row.get('Date'),
+            'DisplayDate': row.get('Date').strftime('%b %d, %Y') if pd.notnull(row.get('Date')) else "N/A",
             'ParentModality': parent,
             'SubModalities': tags,
             'TotalValueM': val_m,
@@ -123,27 +127,45 @@ try:
     # 4. Sidebar Filters
     st.sidebar.title("SerGene Intelligence")
     
+    # Date Range
     min_date = df['Date'].min().to_pydatetime()
     max_date = df['Date'].max().to_pydatetime()
     selected_dates = st.sidebar.date_input("Date Range", value=(min_date, max_date))
 
+    # Broad Modality
     all_parents = ["All"] + sorted(df['ParentModality'].unique().tolist())
     selected_parent = st.sidebar.selectbox("Broad Modality", all_parents)
     
+    # Sub-Modality
     all_tags = sorted(list(set([t for sublist in df['SubModalities'] for t in sublist])))
     selected_subs = st.sidebar.multiselect("Specific Cell Types / Platforms", all_tags)
 
+    # Search Bar
+    search_query = st.sidebar.text_input("🔍 Search Intelligence")
+
     # 5. Apply Filters
     filtered_df = df.copy()
+    
+    # Filter by Date
     if isinstance(selected_dates, (list, tuple)) and len(selected_dates) == 2:
         start_d, end_d = selected_dates
         filtered_df = filtered_df[(filtered_df['Date'].dt.date >= start_d) & (filtered_df['Date'].dt.date <= end_d)]
     
+    # Filter by Parent Modality
     if selected_parent != "All":
         filtered_df = filtered_df[filtered_df['ParentModality'] == selected_parent]
     
+    # Filter by Sub-Modality
     if selected_subs:
         filtered_df = filtered_df[filtered_df['SubModalities'].apply(lambda x: any(s in x for s in selected_subs))]
+
+    # Filter by Search
+    if search_query:
+        filtered_df = filtered_df[
+            filtered_df['Insight'].str.contains(search_query, case=False) | 
+            filtered_df['Title'].str.contains(search_query, case=False) |
+            filtered_df['PartnerA'].str.contains(search_query, case=False)
+        ]
 
     # 6. Dashboard Header
     st.title("Strategic Deal Stream")
@@ -155,11 +177,12 @@ try:
     avg_r = valid_ratios.mean() if not valid_ratios.empty else 0
     m3.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
 
-    # 7. Card Template (Separated to avoid SyntaxErrors)
+    # 7. Card Template (Date Included)
     CARD_TEMPLATE = """
     <div class="deal-card">
         <div style="display: flex; justify-content: space-between; align-items: start; gap: 2rem;">
             <div style="flex: 2;">
+                <div class="date-text">{display_date}</div>
                 <span class="parent-tag">{parent_mod}</span>
                 <h2 style="margin-top: 1rem;">
                     <a href="{link}" target="_blank" class="source-link">{insight}</a>
@@ -175,7 +198,7 @@ try:
                 </div>
                 <div style="margin-top: 1.5rem;">
                     <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Cash Upfront Ratio ({ratio_pct}%)</p>
-                    <div class="ratio-bar-bg">
+                    <div style="height: 10px; background-color: #f1f5f9; border-radius: 5px; margin-top: 8px; overflow: hidden;">
                         <div style="height:10px; width:{ratio_pct}%; background-color:{ratio_color}; border-radius:5px;"></div>
                     </div>
                 </div>
@@ -197,8 +220,8 @@ try:
         r_color = "#10b981" if r_pct > 25 else "#f59e0b"
         tags_html = "".join([f'<span class="tag">{html.escape(t)}</span>' for t in row['SubModalities']])
         
-        # Inject values into the template
         st.markdown(CARD_TEMPLATE.format(
+            display_date=row['DisplayDate'],
             parent_mod=row['ParentModality'],
             link=str(row['Link']),
             insight=html.escape(str(row['Insight'])),
