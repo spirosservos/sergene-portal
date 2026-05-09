@@ -1,209 +1,178 @@
 import streamlit as st
 import pandas as pd
 import html
+import re
 from datetime import datetime
 
-# 1. Page Configuration & Custom CSS
-st.set_page_config(page_title="SerGene Intelligence", layout="wide")
+# 1. Page Configuration
+st.set_page_config(page_title="SerGene Strategic Intelligence", layout="wide")
 
+# --- BI MAPPINGS (The "Brain" of the transformation) ---
+MODALITY_GROUPS = {
+    "Cell Therapy": ["CAR-T", "TCR", "TILs", "NK Cells", "Tregs", "MSCs", "iPSCs", "gamma delta T cells", "γδ T cells", "Cell Therapy"],
+    "Gene Therapy/Editing": ["CRISPR", "Base Editing", "Prime Editing", "Gene Editing", "Gene Therapy"],
+    "RNA Therapeutics": ["mRNA", "siRNA", "RNAi", "miRNA", "ASO", "Antisense", "Aptamer", "RNA"],
+    "Biologics": ["Antibody", "Bispecific", "ADC", "Multi-specific", "Peptide", "Biologics"],
+    "Small Molecule": ["Small Molecule", "Protein Degrader", "Oral"]
+}
+
+def parse_currency(val_str):
+    """Converts strings like '$1.5B' or '$50M' into floats."""
+    if not val_str or pd.isna(val_str) or val_str == "" or val_str == "nan":
+        return 0.0
+    try:
+        match = re.search(r'([\d.]+)\s?([BMbm])', str(val_str))
+        if match:
+            num = float(match.group(1))
+            unit = match.group(2).upper()
+            return num * 1000 if unit == 'B' else num
+        return 0.0
+    except: return 0.0
+
+# 2. Refined Styles
 st.markdown("""
     <style>
-    .main { background-color: #f8fafc; }
-    .stApp { background-color: #f8fafc; }
     .deal-card {
         background-color: white;
-        padding: 2.25rem;
-        border-radius: 1.5rem;
-        border: 1px solid #e2e8f0;
-        margin-bottom: 2rem;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
-        transition: transform 0.2s ease;
-    }
-    .insight-text {
-        color: #3b82f6;
-        font-size: 1.4rem;
-        font-weight: 800;
-        line-height: 1.2;
-        margin-bottom: 0.4rem;
-    }
-    .deal-title {
-        color: #0f172a;
-        font-size: 1rem;
-        font-weight: 700;
-        margin-bottom: 1.25rem;
-        letter-spacing: -0.01em;
-    }
-    .summary-text {
-        color: #475569;
-        font-size: 0.95rem;
-        margin-bottom: 1.5rem;
-        line-height: 1.6;
-    }
-    .score-badge {
-        background-color: #059669;
-        color: white;
-        padding: 0.4rem 1rem;
-        border-radius: 0.75rem;
-        font-weight: 800;
-        font-size: 0.9rem;
-        letter-spacing: 0.05em;
-        display: inline-block;
-        margin-bottom: 1rem;
-    }
-    .tag {
-        display: inline-block;
-        background-color: #f8fafc;
-        color: #64748b;
-        padding: 0.25rem 0.7rem;
-        border-radius: 0.6rem;
-        font-size: 0.7rem;
-        font-weight: 700;
-        margin-right: 0.5rem;
-        margin-bottom: 0.5rem;
-        border: 1px solid #e2e8f0;
-        text-transform: uppercase;
-    }
-    .lock-banner {
-        background-color: #fef2f2;
-        color: #991b1b;
-        padding: 1.25rem;
+        padding: 2rem;
         border-radius: 1rem;
-        text-align: center;
-        margin-bottom: 2.5rem;
-        font-weight: 800;
-        border: 1px solid #fee2e2;
-        font-size: 0.9rem;
+        border: 1px solid #e2e8f0;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    .parent-tag {
+        background-color: #eff6ff;
+        color: #1e40af;
+        padding: 0.2rem 0.6rem;
+        border-radius: 0.4rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        border: 1px solid #bfdbfe;
+    }
+    .ratio-bar {
+        height: 8px;
+        background-color: #f1f5f9;
+        border-radius: 4px;
+        margin-top: 5px;
+    }
+    .ratio-fill {
+        height: 8px;
+        background-color: #10b981;
+        border-radius: 4px;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# 2. Load Data
+# 3. Load & Transform Data
 @st.cache_data
-def load_data():
-    df = pd.read_feather("sg_intel_assets.arrow")
-    if 'Date' in df.columns:
-        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-        # We keep the actual datetime objects for filtering, but create a string version for display
-        df = df.sort_values(by='Date', ascending=False)
-        df['DisplayDate'] = df['Date'].dt.strftime('%Y-%m-%d').fillna('N/A')
-    return df
+def load_and_refine_data():
+    # Load your raw database (using CSV as per your earlier file)
+    df = pd.read_csv("Biotech_Deals_Database.xlsx - Sheet1.csv") 
+    
+    # A. Clean Dates
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+    df = df.sort_values(by='Date', ascending=False)
+    
+    # B. BI Transformation Layer (The "Chef")
+    refined_rows = []
+    for _, row in df.iterrows():
+        # 1. Hierarchical Modality
+        parent = "Other"
+        sub_tags = []
+        for p_mod, keywords in MODALITY_GROUPS.items():
+            found = [k for k in keywords if str(row.get(k, '')).strip().lower() == 'yes']
+            if found:
+                parent = p_mod
+                # Merge Synonyms for display
+                sub_tags = [("Gamma Delta" if "delta" in s.lower() else s) for s in found]
+                break
+        
+        # 2. Financial Normalization
+        val_m = parse_currency(row.get('Deal Value', ''))
+        up_m = parse_currency(row.get('Upfront', ''))
+        ratio = (up_m / val_m) if val_m > 0 else 0.0
+
+        refined_rows.append({
+            'ID': row.get('ID'),
+            'Date': row.get('Date'),
+            'ParentModality': parent,
+            'SubModalities': list(set(sub_tags)),
+            'TotalValueM': val_m,
+            'UpfrontM': up_m,
+            'UpfrontRatio': ratio,
+            'DisplayValue': row.get('Deal Value', 'N/A'),
+            'PartnerA': row.get('Partner A', 'N/A'),
+            'PartnerB': row.get('Partner B', 'N/A'),
+            'Score': row.get('Score', 0),
+            'Insight': row.get('Insight', ''),
+            'Title': row.get('Title', ''),
+            'Summary': row.get('Summary', ''),
+            'Category': row.get('Category', 'Other'),
+            'Link': row.get('Link', '#')
+        })
+    
+    return pd.DataFrame(refined_rows)
 
 try:
-    df = load_data()
+    df = load_and_refine_data()
 
-    # 3. Sidebar Filters & Authentication
-    st.sidebar.title("SerGene Intel")
+    # 4. Sidebar BI Filters
+    st.sidebar.title("SerGene Intelligence")
     
-    with st.sidebar.expander("🔐 Secure Access", expanded=True):
-        try:
-            CORRECT_PASSWORD = st.secrets["access_password"]
-        except:
-            CORRECT_PASSWORD = "SerGene2024"
-            
-        password_input = st.text_input("Access Code", type="password")
-        is_authenticated = (password_input == CORRECT_PASSWORD)
-        
-        if is_authenticated:
-            st.success("Full Access Granted")
-        else:
-            st.info("Guest Mode: Latest 20 results")
+    # Filter 1: Parent Modality (The Big Picture)
+    all_parents = ["All"] + sorted(df['ParentModality'].unique().tolist())
+    selected_parent = st.sidebar.selectbox("Broad Modality", all_parents)
+    
+    # Filter 2: Value Range
+    max_val = int(df['TotalValueM'].max())
+    value_range = st.sidebar.slider("Min Deal Value ($M)", 0, max_val, 0)
 
-    st.sidebar.divider()
-    
-    # NEW: Date Range Filter
-    min_date = df['Date'].min().to_pydatetime()
-    max_date = df['Date'].max().to_pydatetime()
-    date_range = st.sidebar.date_input(
-        "Date Range",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date
-    )
-    
-    # NEW: Modalities Filter (Above Category)
-    all_modalities = sorted(list(set([tag for tags in df['ModalityTags'] for tag in tags if tag])))
-    selected_modalities = st.sidebar.multiselect("Filter by Modalities", all_modalities)
-    
-    categories = ["All"] + sorted(df['Category'].unique().tolist())
-    category_filter = st.sidebar.selectbox("Category", categories)
-    
-    search = st.sidebar.text_input("🔍 Search Database")
-    
-    # 4. Filter Logic
+    # 5. Filter Application
     filtered_df = df.copy()
-    
-    # Apply Date Range Filter
-    if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
-        start_date, end_date = date_range
-        filtered_df = filtered_df[
-            (filtered_df['Date'].dt.date >= start_date) & 
-            (filtered_df['Date'].dt.date <= end_date)
-        ]
-    
-    # Apply Modalities Filter
-    if selected_modalities:
-        filtered_df = filtered_df[filtered_df['ModalityTags'].apply(lambda tags: any(m in tags for m in selected_modalities))]
-    
-    # Apply Category Filter
-    if category_filter != "All":
-        filtered_df = filtered_df[filtered_df['Category'] == category_filter]
+    if selected_parent != "All":
+        filtered_df = filtered_df[filtered_df['ParentModality'] == selected_parent]
+    filtered_df = filtered_df[filtered_df['TotalValueM'] >= value_range]
+
+    # 6. BI Header Metrics
+    st.title("Strategic Deal Stream")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Deals", len(filtered_df))
+    col2.metric("Total Value Managed", f"${filtered_df['TotalValueM'].sum()/1000:.1f}B")
+    avg_ratio = filtered_df[filtered_df['UpfrontRatio'] > 0]['UpfrontRatio'].mean()
+    col3.metric("Avg. Upfront Ratio", f"{avg_ratio:.1%}")
+
+    # 7. Card Display
+    for _, row in filtered_df.iterrows():
+        # Financial logic for display
+        ratio_pct = row['UpfrontRatio'] * 100
+        ratio_color = "#10b981" if ratio_pct > 20 else "#f59e0b"
         
-    # Apply Search
-    if search:
-        filtered_df = filtered_df[
-            filtered_df['Insight'].str.contains(search, case=False) | 
-            filtered_df['Title'].str.contains(search, case=False) |
-            filtered_df['PartnerA'].str.contains(search, case=False)
-        ]
-        
-    display_df = filtered_df if is_authenticated else filtered_df.head(20)
-
-    # 5. Main Display
-    st.title("Strategic Intelligence Stream")
-    
-    if not is_authenticated:
-        st.markdown('<div class="lock-banner">🔒 Preview Mode: Showing 20 most recent assets. Enter code in sidebar for full database.</div>', unsafe_allow_html=True)
-    
-    st.caption(f"Displaying {len(display_df)} intelligence records")
-
-    for _, row in display_df.iterrows():
-        # Sanitize data for HTML safety
-        s_insight = html.escape(str(row['Insight']))
-        s_title = html.escape(str(row['Title']))
-        s_summary = html.escape(str(row['Summary']))
-        s_partnerA = html.escape(str(row['PartnerA']))
-        s_partnerB = html.escape(str(row['PartnerB']))
-        s_value = html.escape(str(row['DealValue']))
-        s_date = html.escape(str(row['DisplayDate']))
-        s_cat = html.escape(str(row['Category']))
-        s_score = html.escape(str(row['Score']))
-
-        tags_html = ' '.join([f'<span class="tag">{html.escape(tag)}</span>' for tag in row['ModalityTags']])
+        subs_html = " ".join([f'<span class="tag">{s}</span>' for s in row['SubModalities']])
         
         st.markdown(f"""
         <div class="deal-card">
-            <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 1rem;">
-                <div style="flex: 2; min-width: 300px;">
-                    <div class="score-badge">PT SCORE: {s_score}</div>
-                    <p style="color: #94a3b8; font-size: 0.75rem; font-weight: 800; margin-top: 0.2rem; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">
-                        {s_date} • {s_cat}
-                    </p>
-                    <h2 class="insight-text">{s_insight}</h2>
-                    <div class="deal-title">{s_title}</div>
-                    <p class="summary-text">{s_summary}</p>
-                    <div style="margin-top: 1.25rem;">
-                        {tags_html}
-                    </div>
+            <div style="display: flex; justify-content: space-between;">
+                <div style="flex: 2;">
+                    <span class="parent-tag">{row['ParentModality']}</span>
+                    <h2 style="color: #1d4ed8; margin-top: 10px; font-size: 1.5rem;">{row['Insight']}</h2>
+                    <p style="font-weight: 700; font-size: 0.9rem;">{row['Title']}</p>
+                    <p style="color: #64748b; font-size: 0.85rem;">{row['Summary']}</p>
+                    <div style="margin-top: 10px;">{subs_html}</div>
                 </div>
-                <div style="flex: 1; min-width: 250px; border-left: 2px solid #f1f5f9; padding-left: 2rem;">
-                    <div style="margin-bottom: 1.5rem;">
-                        <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5rem;">Primary Partner</p>
-                        <p style="font-weight: 800; color: #0f172a; font-size: 1.15rem; line-height: 1.2;">{s_partnerA}</p>
-                        <p style="font-weight: 600; color: #64748b; font-size: 0.85rem; margin-top: 0.25rem;">{s_partnerB}</p>
+                <div style="flex: 1; border-left: 1px solid #e2e8f0; padding-left: 20px; text-align: right;">
+                    <p style="font-size: 0.7rem; color: #94a3b8; font-weight: 800;">TOTAL DEAL VALUE</p>
+                    <p style="font-size: 1.8rem; font-weight: 900; color: #0f172a;">{row['DisplayValue']}</p>
+                    
+                    <p style="font-size: 0.7rem; color: #94a3b8; font-weight: 800; margin-top: 15px;">CASH UPFRONT RATIO ({ratio_pct:.1f}%)</p>
+                    <div class="ratio-bar">
+                        <div class="ratio-fill" style="width: {ratio_pct}%; background-color: {ratio_color};"></div>
                     </div>
-                    <div>
-                        <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.2rem;">Deal Value</p>
-                        <p style="font-size: 1.75rem; font-weight: 900; color: #059669; letter-spacing: -0.02em;">{s_value}</p>
+                    
+                    <div style="margin-top: 20px;">
+                        <p style="font-size: 0.7rem; color: #94a3b8; font-weight: 800;">PARTNERS</p>
+                        <p style="font-size: 0.9rem; font-weight: 700;">{row['PartnerA']}</p>
+                        <p style="font-size: 0.8rem; color: #64748b;">{row['PartnerB']}</p>
                     </div>
                 </div>
             </div>
@@ -211,4 +180,4 @@ try:
         """, unsafe_allow_html=True)
 
 except Exception as e:
-    st.error(f"Failed to initialize database: {e}")
+    st.error(f"Error loading stream: {e}")
