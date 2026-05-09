@@ -49,15 +49,14 @@ st.markdown("""
         text-transform: uppercase;
         border: 1px solid #bfdbfe;
     }
-    .ratio-bar-bg {
-        height: 10px;
-        background-color: #f1f5f9;
-        border-radius: 5px;
-        margin-top: 8px;
+    .source-link {
+        color: #3b82f6;
+        text-decoration: none;
+        font-weight: 800;
     }
-    .ratio-fill {
-        height: 10px;
-        border-radius: 5px;
+    .source-link:hover {
+        text-decoration: underline;
+        color: #2563eb;
     }
     .tag {
         display: inline-block;
@@ -77,7 +76,6 @@ st.markdown("""
 # 3. Load & Refine Data
 @st.cache_data
 def load_and_refine_data():
-    # Load your specific Arrow file
     df = pd.read_feather("sg_intel_assets.arrow") 
     
     if 'Date' in df.columns:
@@ -86,15 +84,16 @@ def load_and_refine_data():
     
     refined_rows = []
     for _, row in df.iterrows():
-        # Modality Grouping
         tags = row.get('ModalityTags', [])
+        # Ensure tags is a list and handle NaNs
+        if not isinstance(tags, (list, np.ndarray)): tags = []
+        
         parent = "Other"
         for p_mod, keywords in MODALITY_GROUPS.items():
             if any(tag in keywords for tag in tags):
                 parent = p_mod
                 break
         
-        # Financial Ratios
         val_m = parse_currency(row.get('DealValue', ''))
         up_m = parse_currency(row.get('Upfront', ''))
         ratio = (up_m / val_m) if val_m > 0 else 0.0
@@ -122,17 +121,35 @@ try:
     # 4. Sidebar BI Filters
     st.sidebar.title("SerGene Intelligence")
     
+    # FILTER 1: Date Range
+    min_date = df['Date'].min().to_pydatetime()
+    max_date = df['Date'].max().to_pydatetime()
+    selected_dates = st.sidebar.date_input("Date Range", value=(min_date, max_date))
+
+    # FILTER 2: Broad Modality
     all_parents = ["All"] + sorted(df['ParentModality'].unique().tolist())
     selected_parent = st.sidebar.selectbox("Broad Modality", all_parents)
     
-    max_val = int(df['TotalValueM'].max()) if not df.empty else 1000
-    min_val_filter = st.sidebar.slider("Min Deal Value ($M)", 0, max_val, 0)
+    # FILTER 3: Sub-Modality / Cell Type
+    # Get all unique tags from the SubModalities column
+    all_tags = sorted(list(set([t for sublist in df['SubModalities'] for t in sublist])))
+    selected_subs = st.sidebar.multiselect("Specific Cell Types / Platforms", all_tags)
 
     # 5. Apply Filters
     filtered_df = df.copy()
+    
+    # Apply Date
+    if isinstance(selected_dates, (list, tuple)) and len(selected_dates) == 2:
+        start_d, end_d = selected_dates
+        filtered_df = filtered_df[(filtered_df['Date'].dt.date >= start_d) & (filtered_df['Date'].dt.date <= end_d)]
+    
+    # Apply Parent
     if selected_parent != "All":
         filtered_df = filtered_df[filtered_df['ParentModality'] == selected_parent]
-    filtered_df = filtered_df[filtered_df['TotalValueM'] >= min_val_filter]
+    
+    # Apply Sub-Modality
+    if selected_subs:
+        filtered_df = filtered_df[filtered_df['SubModalities'].apply(lambda x: any(s in x for s in selected_subs))]
 
     # 6. Top Metrics
     st.title("Strategic Deal Stream")
@@ -148,16 +165,19 @@ try:
     for _, row in filtered_df.iterrows():
         r_pct = row['UpfrontRatio'] * 100
         r_color = "#10b981" if r_pct > 25 else "#f59e0b"
-        
         tags_html = "".join([f'<span class="tag">{html.escape(t)}</span>' for t in row['SubModalities']])
         
-        # We build the HTML string carefully to avoid syntax errors
+        # We make the Insight a clickable link
+        clean_link = str(row['Link'])
+        
         card_html = f"""
         <div class="deal-card">
             <div style="display: flex; justify-content: space-between; align-items: start; gap: 2rem;">
                 <div style="flex: 2;">
                     <span class="parent-tag">{row['ParentModality']}</span>
-                    <h2 style="color: #3b82f6; font-size: 1.4rem; font-weight: 800; margin-top: 1rem;">{html.escape(str(row['Insight']))}</h2>
+                    <h2 style="margin-top: 1rem;">
+                        <a href="{clean_link}" target="_blank" class="source-link">{html.escape(str(row['Insight']))}</a>
+                    </h2>
                     <div style="font-weight: 700; color: #0f172a; font-size: 0.95rem; margin-bottom: 0.75rem;">{html.escape(str(row['Title']))}</div>
                     <p style="color: #475569; font-size: 0.9rem; line-height: 1.5;">{html.escape(str(row['Summary']))}</p>
                     <div style="margin-top: 1.25rem;">{tags_html}</div>
@@ -175,6 +195,9 @@ try:
                         <p style="font-size: 0.65rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Partners</p>
                         <p style="font-weight: 800; color: #0f172a; font-size: 1rem; margin: 0;">{html.escape(str(row['PartnerA']))}</p>
                         <p style="color: #64748b; font-size: 0.8rem; margin: 0;">{html.escape(str(row['PartnerB']))}</p>
+                    </div>
+                    <div style="margin-top: 1.5rem;">
+                        <a href="{clean_link}" target="_blank" style="text-decoration: none; color: white; background-color: #3b82f6; padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.75rem; font-weight: 800;">View Original Source</a>
                     </div>
                 </div>
             </div>
