@@ -34,32 +34,38 @@ st.markdown("""
     <style>
     .deal-card {
         background-color: white;
-        padding: 2rem;
-        border-radius: 1rem;
+        padding: 2.25rem;
+        border-radius: 1.5rem;
         border: 1px solid #e2e8f0;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
     }
     .parent-tag {
         background-color: #eff6ff;
         color: #1e40af;
-        padding: 0.2rem 0.6rem;
-        border-radius: 0.4rem;
+        padding: 0.3rem 0.8rem;
+        border-radius: 0.6rem;
         font-size: 0.75rem;
-        font-weight: 700;
+        font-weight: 800;
         text-transform: uppercase;
         border: 1px solid #bfdbfe;
+        letter-spacing: 0.05em;
     }
     .ratio-bar {
-        height: 8px;
+        height: 10px;
         background-color: #f1f5f9;
-        border-radius: 4px;
-        margin-top: 5px;
+        border-radius: 5px;
+        margin-top: 8px;
+        overflow: hidden;
     }
     .ratio-fill {
-        height: 8px;
-        background-color: #10b981;
-        border-radius: 4px;
+        height: 100%;
+        border-radius: 5px;
+    }
+    .metric-value {
+        font-size: 2rem;
+        font-weight: 900;
+        color: #0f172a;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -67,43 +73,43 @@ st.markdown("""
 # 3. Load & Transform Data
 @st.cache_data
 def load_and_refine_data():
-    # Load your raw database (using CSV as per your earlier file)
-    df = pd.read_csv("Biotech_Deals_Database.xlsx - Sheet1.csv") 
+    # Load from Feather (Arrow) format
+    df = pd.read_feather("sg_intel_assets.arrow") 
     
     # A. Clean Dates
-    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    df = df.sort_values(by='Date', ascending=False)
+    if 'Date' in df.columns:
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+        df = df.sort_values(by='Date', ascending=False)
     
-    # B. BI Transformation Layer (The "Chef")
+    # B. BI Transformation Layer
     refined_rows = []
     for _, row in df.iterrows():
-        # 1. Hierarchical Modality
+        # 1. Hierarchical Modality 
+        # Check against the list in 'ModalityTags'
+        tags = row.get('ModalityTags', [])
         parent = "Other"
-        sub_tags = []
         for p_mod, keywords in MODALITY_GROUPS.items():
-            found = [k for k in keywords if str(row.get(k, '')).strip().lower() == 'yes']
-            if found:
+            if any(tag in keywords for tag in tags):
                 parent = p_mod
-                # Merge Synonyms for display
-                sub_tags = [("Gamma Delta" if "delta" in s.lower() else s) for s in found]
                 break
         
         # 2. Financial Normalization
-        val_m = parse_currency(row.get('Deal Value', ''))
-        up_m = parse_currency(row.get('Upfront', ''))
+        # Using keys from your previous webapp script (DealValue, Upfront)
+        val_m = parse_currency(row.get('DealValue', ''))
+        up_m = parse_currency(row.get('Upfront', '')) # Check if Upfront exists in arrow
         ratio = (up_m / val_m) if val_m > 0 else 0.0
 
         refined_rows.append({
             'ID': row.get('ID'),
             'Date': row.get('Date'),
             'ParentModality': parent,
-            'SubModalities': list(set(sub_tags)),
+            'SubModalities': tags, # Keep original tags for the card
             'TotalValueM': val_m,
             'UpfrontM': up_m,
             'UpfrontRatio': ratio,
-            'DisplayValue': row.get('Deal Value', 'N/A'),
-            'PartnerA': row.get('Partner A', 'N/A'),
-            'PartnerB': row.get('Partner B', 'N/A'),
+            'DisplayValue': row.get('DealValue', 'N/A'),
+            'PartnerA': row.get('PartnerA', 'N/A'),
+            'PartnerB': row.get('PartnerB', 'N/A'),
             'Score': row.get('Score', 0),
             'Insight': row.get('Insight', ''),
             'Title': row.get('Title', ''),
@@ -120,64 +126,71 @@ try:
     # 4. Sidebar BI Filters
     st.sidebar.title("SerGene Intelligence")
     
-    # Filter 1: Parent Modality (The Big Picture)
+    # Simple Access Check
+    with st.sidebar.expander("🔐 Access", expanded=False):
+        password = st.text_input("Code", type="password")
+        is_auth = (password == "SerGene2024")
+
+    # BI Filters
     all_parents = ["All"] + sorted(df['ParentModality'].unique().tolist())
     selected_parent = st.sidebar.selectbox("Broad Modality", all_parents)
     
-    # Filter 2: Value Range
-    max_val = int(df['TotalValueM'].max())
-    value_range = st.sidebar.slider("Min Deal Value ($M)", 0, max_val, 0)
+    # Range Slider for Big Deals
+    max_val = int(df['TotalValueM'].max()) if not df.empty else 1000
+    min_val_filter = st.sidebar.slider("Min Deal Value ($M)", 0, max_val, 0)
 
     # 5. Filter Application
     filtered_df = df.copy()
     if selected_parent != "All":
         filtered_df = filtered_df[filtered_df['ParentModality'] == selected_parent]
-    filtered_df = filtered_df[filtered_df['TotalValueM'] >= value_range]
+    filtered_df = filtered_df[filtered_df['TotalValueM'] >= min_val_filter]
 
-    # 6. BI Header Metrics
+    # Limit view for guests
+    display_df = filtered_df if is_auth else filtered_df.head(20)
+
+    # 6. BI Header Metrics (Summary of Current View)
     st.title("Strategic Deal Stream")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Deals", len(filtered_df))
-    col2.metric("Total Value Managed", f"${filtered_df['TotalValueM'].sum()/1000:.1f}B")
-    avg_ratio = filtered_df[filtered_df['UpfrontRatio'] > 0]['UpfrontRatio'].mean()
-    col3.metric("Avg. Upfront Ratio", f"{avg_ratio:.1%}")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Deals Found", len(filtered_df))
+    m2.metric("Market Volume", f"${filtered_df['TotalValueM'].sum()/1000:.1f}B")
+    
+    # Calculate Avg Upfront Ratio for deals that have financial data
+    valid_ratios = filtered_df[filtered_df['UpfrontRatio'] > 0]['UpfrontRatio']
+    avg_r = valid_ratios.mean() if not valid_ratios.empty else 0
+    m3.metric("Avg. Cash Intensity", f"{avg_r:.1%}")
 
     # 7. Card Display
-    for _, row in filtered_df.iterrows():
-        # Financial logic for display
-        ratio_pct = row['UpfrontRatio'] * 100
-        ratio_color = "#10b981" if ratio_pct > 20 else "#f59e0b"
+    for _, row in display_df.iterrows():
+        # Visual Logic for Ratio Bar
+        r_pct = row['UpfrontRatio'] * 100
+        r_color = "#10b981" if r_pct > 25 else "#f59e0b" # Green if high cash, Orange if risky
         
-        subs_html = " ".join([f'<span class="tag">{s}</span>' for s in row['SubModalities']])
+        tags_html = " ".join([f'<span class="tag">{html.escape(t)}</span>' for t in row['SubModalities']])
         
         st.markdown(f"""
         <div class="deal-card">
-            <div style="display: flex; justify-content: space-between;">
+            <div style="display: flex; justify-content: space-between; align-items: start; gap: 2rem;">
                 <div style="flex: 2;">
                     <span class="parent-tag">{row['ParentModality']}</span>
-                    <h2 style="color: #1d4ed8; margin-top: 10px; font-size: 1.5rem;">{row['Insight']}</h2>
-                    <p style="font-weight: 700; font-size: 0.9rem;">{row['Title']}</p>
-                    <p style="color: #64748b; font-size: 0.85rem;">{row['Summary']}</p>
-                    <div style="margin-top: 10px;">{subs_html}</div>
+                    <h2 style="color: #3b82f6; font-size: 1.5rem; font-weight: 800; margin-top: 1rem; margin-bottom: 0.5rem;">{row['Insight']}</h2>
+                    <div style="font-weight: 700; color: #0f172a; margin-bottom: 1rem;">{row['Title']}</div>
+                    <p style="color: #475569; font-size: 0.95rem; line-height: 1.6;">{row['Summary']}</p>
+                    <div style="margin-top: 1.5rem;">{tags_html}</div>
                 </div>
-                <div style="flex: 1; border-left: 1px solid #e2e8f0; padding-left: 20px; text-align: right;">
-                    <p style="font-size: 0.7rem; color: #94a3b8; font-weight: 800;">TOTAL DEAL VALUE</p>
-                    <p style="font-size: 1.8rem; font-weight: 900; color: #0f172a;">{row['DisplayValue']}</p>
-                    
-                    <p style="font-size: 0.7rem; color: #94a3b8; font-weight: 800; margin-top: 15px;">CASH UPFRONT RATIO ({ratio_pct:.1f}%)</p>
-                    <div class="ratio-bar">
-                        <div class="ratio-fill" style="width: {ratio_pct}%; background-color: {ratio_color};"></div>
+                <div style="flex: 1; border-left: 2px solid #f1f5f9; padding-left: 2rem;">
+                    <div>
+                        <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Total Deal Value</p>
+                        <p style="font-size: 1.8rem; font-weight: 900; color: #059669;">{row['DisplayValue']}</p>
                     </div>
                     
-                    <div style="margin-top: 20px;">
-                        <p style="font-size: 0.7rem; color: #94a3b8; font-weight: 800;">PARTNERS</p>
-                        <p style="font-size: 0.9rem; font-weight: 700;">{row['PartnerA']}</p>
-                        <p style="font-size: 0.8rem; color: #64748b;">{row['PartnerB']}</p>
+                    <div style="margin-top: 1.5rem;">
+                        <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Cash Upfront Ratio ({r_pct:.1f}%)</p>
+                        <div class="ratio-bar">
+                            <div class="ratio-fill" style="width: {r_pct}%; background-color: {r_color};"></div>
+                        </div>
                     </div>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-except Exception as e:
-    st.error(f"Error loading stream: {e}")
+                    
+                    <div style="margin-top: 1.5rem;">
+                        <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Partners</p>
+                        <p style="font-weight: 800; color: #0f172a; font-size: 1.1rem;">{row['PartnerA']}</p>
+                        <p style="color: #
