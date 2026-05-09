@@ -92,6 +92,9 @@ st.markdown("""
 # ==========================================
 @st.cache_data
 def load_and_refine_data():
+    if not os.path.exists("sg_intel_assets.arrow"):
+        return pd.DataFrame()
+    
     df = pd.read_feather("sg_intel_assets.arrow") 
     
     if 'Date' in df.columns:
@@ -100,32 +103,37 @@ def load_and_refine_data():
     
     refined_rows = []
     for _, row in df.iterrows():
-        # Get existing tags
+        # 1. Start with existing tags from the ModalityTags column
         tags = list(row.get('ModalityTags', []))
-        if not isinstance(tags, (list, np.ndarray)): tags = []
+        if not isinstance(tags, (list, np.ndarray)): 
+            tags = []
         
-        # --- NEW: HARVEST SPECIFIC CELL TYPES FROM DEDICATED COLUMNS ---
-        # We check if the count is > 0 or if the column equals "Yes"
-        if row.get('MSCs', 0) in [1, "Yes", "yes"]: tags.append("MSCs")
-        if row.get('iPSCs', 0) in [1, "Yes", "yes"]: tags.append("iPSCs")
+        # 2. HARVEST CELL TYPES (Columns 86-89 / CH-CK)
+        # We check for "Yes", 1, or 1.0 to be safe
+        if str(row.get('MSCs', '')).lower() in ['yes', '1', '1.0']:
+            tags.append("MSCs")
         
-        # Merge Gamma Delta synonyms into one clean display tag
-        gd_check = [row.get('gamma delta T cells', 0), row.get('γδ T cells', 0)]
-        if any(v in [1, "Yes", "yes"] for v in gd_check):
-            tags.append("γδ T cells")
+        if str(row.get('iPSCs', '')).lower() in ['yes', '1', '1.0']:
+            tags.append("iPSCs")
             
-        # Clean up tags (remove duplicates and empty strings)
+        # Merge "gamma delta T cells" and "γδ T cells" into one tag
+        gd_synonyms = [row.get('gamma delta T cells', ''), row.get('γδ T cells', '')]
+        if any(str(v).lower() in ['yes', '1', '1.0'] for v in gd_synonyms):
+            tags.append("γδ T cells")
+
+        # Clean tags: Remove duplicates and "nan" strings
         tags = list(set([str(t).strip() for t in tags if t and str(t).lower() != 'nan']))
         
-        # Determine Parent Category
+        # 3. Determine Broad Modality for Filtering
         parent = "Other"
-        norm_tags = [t.lower() for t in tags]
+        normalized_tags = [t.lower() for t in tags]
         for group_name, keywords in MODALITY_GROUPS.items():
             lower_kws = [k.lower() for k in keywords]
-            if any(t in lower_kws for t in norm_tags):
+            if any(t in lower_kws for t in normalized_tags):
                 parent = group_name
                 break
         
+        # 4. Financial Normalization
         val_m = parse_currency(row.get('DealValue', ''))
         up_m = parse_currency(row.get('Upfront', ''))
         ratio = (up_m / val_m) if val_m > 0 else 0.0
@@ -135,7 +143,7 @@ def load_and_refine_data():
             'Date': row.get('Date'),
             'DisplayDate': row.get('Date').strftime('%b %d, %Y') if pd.notnull(row.get('Date')) else "N/A",
             'ParentModality': parent,
-            'SubModalities': tags,
+            'SubModalities': tags, # These tags now include MSCs, iPSCs, etc.
             'TA': row.get('TA', 'Other/General'),
             'Category': row.get('Category', 'N/A'),
             'TotalValueM': val_m,
