@@ -92,8 +92,6 @@ st.markdown("""
 # ==========================================
 @st.cache_data
 def load_and_refine_data():
-    if not os.path.exists("sg_intel_assets.arrow"):
-        return pd.DataFrame()
     df = pd.read_feather("sg_intel_assets.arrow") 
     
     if 'Date' in df.columns:
@@ -102,15 +100,29 @@ def load_and_refine_data():
     
     refined_rows = []
     for _, row in df.iterrows():
-        tags = row.get('ModalityTags', [])
+        # Get existing tags
+        tags = list(row.get('ModalityTags', []))
         if not isinstance(tags, (list, np.ndarray)): tags = []
         
-        # Modality Grouping
+        # --- NEW: HARVEST SPECIFIC CELL TYPES FROM DEDICATED COLUMNS ---
+        # We check if the count is > 0 or if the column equals "Yes"
+        if row.get('MSCs', 0) in [1, "Yes", "yes"]: tags.append("MSCs")
+        if row.get('iPSCs', 0) in [1, "Yes", "yes"]: tags.append("iPSCs")
+        
+        # Merge Gamma Delta synonyms into one clean display tag
+        gd_check = [row.get('gamma delta T cells', 0), row.get('γδ T cells', 0)]
+        if any(v in [1, "Yes", "yes"] for v in gd_check):
+            tags.append("γδ T cells")
+            
+        # Clean up tags (remove duplicates and empty strings)
+        tags = list(set([str(t).strip() for t in tags if t and str(t).lower() != 'nan']))
+        
+        # Determine Parent Category
         parent = "Other"
-        normalized_tags = [str(t).lower().strip() for t in tags]
-        for group_name, group_keywords in MODALITY_GROUPS.items():
-            lower_kws = [k.lower().strip() for k in group_keywords]
-            if any(t in lower_kws for t in normalized_tags):
+        norm_tags = [t.lower() for t in tags]
+        for group_name, keywords in MODALITY_GROUPS.items():
+            lower_kws = [k.lower() for k in keywords]
+            if any(t in lower_kws for t in norm_tags):
                 parent = group_name
                 break
         
@@ -127,7 +139,6 @@ def load_and_refine_data():
             'TA': row.get('TA', 'Other/General'),
             'Category': row.get('Category', 'N/A'),
             'TotalValueM': val_m,
-            'UpfrontM': up_m,
             'UpfrontRatio': ratio,
             'DisplayValue': str(row.get('DealValue', 'N/A')),
             'PartnerA': str(row.get('PartnerA', 'N/A')),
