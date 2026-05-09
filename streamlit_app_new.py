@@ -177,6 +177,35 @@ try:
     avg_r = valid_ratios.mean() if not valid_ratios.empty else 0
     m3.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
 
+    # Insert this block right after your "Dashboard Header" (Metric columns) and before the Card Loop
+
+# --- 6.5 Market Analytics Section ---
+st.divider()
+st.subheader("📈 Market Trends & Competitive Analysis")
+
+tab1, tab2, tab3 = st.tabs(["Deal Volume by Modality", "Therapeutic Area Focus", "Top Strategic Players"])
+
+with tab1:
+    # Bar Chart: Deals per Modality
+    modality_counts = filtered_df['ParentModality'].value_counts()
+    st.bar_chart(modality_counts, color="#3b82f6")
+    st.caption("Distribution of deals based on broad therapeutic modality.")
+
+with tab2:
+    # Bar Chart: Deals by Therapeutic Area
+    ta_counts = filtered_df['TA'].value_counts().head(10)
+    st.bar_chart(ta_counts, color="#10b981")
+    st.caption("Top 10 Therapeutic Areas by deal frequency.")
+
+with tab3:
+    # Horizontal Bar: Top Partners (Buyers/Collaborators)
+    # We filter out "N/A" and "Unknown" for cleaner charts
+    top_partners = filtered_df[filtered_df['PartnerA'] != "N/A"]['PartnerA'].value_counts().head(10)
+    st.bar_chart(top_partners, horizontal=True, color="#f59e0b")
+    st.caption("Most active companies in the current filtered dataset.")
+
+st.divider()
+
     # 7. Card Template (Date Included)
     CARD_TEMPLATE = """
     <div class="deal-card">
