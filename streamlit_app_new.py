@@ -103,46 +103,49 @@ def load_and_refine_data():
     
     refined_rows = []
     for _, row in df.iterrows():
-        # 1. Initialize tags from the existing list
+        # 1. Initialize tags
         tags = []
         raw_tags = row.get('ModalityTags')
         if isinstance(raw_tags, (list, np.ndarray)):
-            tags = [str(t).strip() for t in raw_tags if str(t).lower() != 'nan']
-        
+            # NEW: Split CamelCase (e.g., "CellTherapy" -> "Cell Therapy")
+            tags = [re.sub(r'([a-z])([A-Z])', r'\1 \2', str(t)).strip() for t in raw_tags]
+
         # 2. THE UNIFIED HARVESTER
         for col_name in row.index:
             val = row[col_name]
             col_lower = str(col_name).lower().strip()
             
-            # Check if the cell is 'Positive' (Number > 0 or string 'Yes')
             is_positive = False
             try:
                 if float(val) > 0: is_positive = True
             except:
                 if str(val).lower().strip() in ['yes', 'y', 'true', '1']: is_positive = True
             
-            # If positive, we map the column name to a professional Tag
             if is_positive:
-                if "msc" in col_lower:
-                    tags.append("MSCs")
-                
-                elif "ipsc" in col_lower:
-                    tags.append("iPSCs")
-                
-                # This line solves the Seagen (English) & Takeda (Greek) mismatch
+                if "msc" in col_lower: tags.append("MSCs")
+                elif "ipsc" in col_lower: tags.append("iPSCs")
                 elif any(x in col_lower for x in ["gamma", "delta", "γ", "δ"]):
                     tags.append("γδ T cells")
 
-        # 3. Final cleanup of tags
-        tags = list(set([t for t in tags if t]))
+        # 3. Final cleanup and Space Normalization
+        # This ensures "CellTherapy" becomes "Cell Therapy" for all tags
+        clean_tags = []
+        for t in tags:
+            # Insert space between lower and upper case if joined
+            normalized = re.sub(r'([a-z])([A-Z])', r'\1 \2', str(t))
+            normalized = normalized.strip()
+            if normalized and normalized.lower() != 'nan':
+                clean_tags.append(normalized)
         
-        # 4. Determine Broad Modality for Filtering
+        tags = list(set(clean_tags))
+        
+        # 4. Determine Broad Modality
         parent = "Other"
         norm_tags = [t.lower() for t in tags]
         for group_name, keywords in MODALITY_GROUPS.items():
             lower_kws = [k.lower() for k in keywords]
             if any(t in lower_kws for t in norm_tags):
-                parent = group_name
+                parent = group_name # This will be "Cell Therapy" (with the space)
                 break
         
         # 5. Financials
