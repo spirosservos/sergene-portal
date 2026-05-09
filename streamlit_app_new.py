@@ -108,17 +108,25 @@ def load_and_refine_data():
         if not isinstance(tags, (list, np.ndarray)): 
             tags = []
         
-        # 2. HARVEST CELL TYPES (Columns 86-89 / CH-CK)
-        # We check for "Yes", 1, or 1.0 to be safe
-        if str(row.get('MSCs', '')).lower() in ['yes', '1', '1.0']:
-            tags.append("MSCs")
+        # 2. HARVEST CELL TYPES (Columns 86-89)
+        # We use pd.to_numeric to handle both numbers and "Yes" strings safely
         
-        if str(row.get('iPSCs', '')).lower() in ['yes', '1', '1.0']:
+        # Check MSCs
+        msc_val = pd.to_numeric(row.get('MSCs'), errors='coerce')
+        if (msc_val and msc_val > 0) or str(row.get('MSCs')).lower() == 'yes':
+            tags.append("MSCs")
+            
+        # Check iPSCs
+        ipsc_val = pd.to_numeric(row.get('iPSCs'), errors='coerce')
+        if (ipsc_val and ipsc_val > 0) or str(row.get('iPSCs')).lower() == 'yes':
             tags.append("iPSCs")
             
-        # Merge "gamma delta T cells" and "γδ T cells" into one tag
-        gd_synonyms = [row.get('gamma delta T cells', ''), row.get('γδ T cells', '')]
-        if any(str(v).lower() in ['yes', '1', '1.0'] for v in gd_synonyms):
+        # Check Gamma Delta (Merging both synonym columns)
+        gd1 = pd.to_numeric(row.get('gamma delta T cells'), errors='coerce')
+        gd2 = pd.to_numeric(row.get('γδ T cells'), errors='coerce')
+        if (gd1 and gd1 > 0) or (gd2 and gd2 > 0) or \
+           str(row.get('gamma delta T cells')).lower() == 'yes' or \
+           str(row.get('γδ T cells')).lower() == 'yes':
             tags.append("γδ T cells")
 
         # Clean tags: Remove duplicates and "nan" strings
