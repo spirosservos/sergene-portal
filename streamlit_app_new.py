@@ -7,7 +7,7 @@ from datetime import datetime
 # 1. Page Configuration
 st.set_page_config(page_title="SerGene Strategic Intelligence", layout="wide")
 
-# --- BI MAPPINGS (The "Brain" of the transformation) ---
+# --- BI MAPPINGS ---
 MODALITY_GROUPS = {
     "Cell Therapy": ["CAR-T", "TCR", "TILs", "NK Cells", "Tregs", "MSCs", "iPSCs", "gamma delta T cells", "γδ T cells", "Cell Therapy"],
     "Gene Therapy/Editing": ["CRISPR", "Base Editing", "Prime Editing", "Gene Editing", "Gene Therapy"],
@@ -17,7 +17,6 @@ MODALITY_GROUPS = {
 }
 
 def parse_currency(val_str):
-    """Converts strings like '$1.5B' or '$50M' into floats."""
     if not val_str or pd.isna(val_str) or val_str == "" or val_str == "nan":
         return 0.0
     try:
@@ -34,58 +33,60 @@ st.markdown("""
     <style>
     .deal-card {
         background-color: white;
-        padding: 2.25rem;
-        border-radius: 1.5rem;
+        padding: 2rem;
+        border-radius: 1.25rem;
         border: 1px solid #e2e8f0;
-        margin-bottom: 2rem;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+        margin-bottom: 1.5rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
     }
     .parent-tag {
         background-color: #eff6ff;
         color: #1e40af;
-        padding: 0.3rem 0.8rem;
-        border-radius: 0.6rem;
-        font-size: 0.75rem;
+        padding: 0.25rem 0.75rem;
+        border-radius: 0.5rem;
+        font-size: 0.7rem;
         font-weight: 800;
         text-transform: uppercase;
         border: 1px solid #bfdbfe;
-        letter-spacing: 0.05em;
     }
-    .ratio-bar {
+    .ratio-bar-bg {
         height: 10px;
         background-color: #f1f5f9;
         border-radius: 5px;
         margin-top: 8px;
-        overflow: hidden;
     }
     .ratio-fill {
-        height: 100%;
+        height: 10px;
         border-radius: 5px;
     }
-    .metric-value {
-        font-size: 2rem;
-        font-weight: 900;
-        color: #0f172a;
+    .tag {
+        display: inline-block;
+        background-color: #f8fafc;
+        color: #64748b;
+        padding: 0.2rem 0.6rem;
+        border-radius: 0.5rem;
+        font-size: 0.65rem;
+        font-weight: 700;
+        margin-right: 0.4rem;
+        border: 1px solid #e2e8f0;
+        text-transform: uppercase;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# 3. Load & Transform Data
+# 3. Load & Refine Data
 @st.cache_data
 def load_and_refine_data():
-    # Load from Feather (Arrow) format
+    # Load your specific Arrow file
     df = pd.read_feather("sg_intel_assets.arrow") 
     
-    # A. Clean Dates
     if 'Date' in df.columns:
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         df = df.sort_values(by='Date', ascending=False)
     
-    # B. BI Transformation Layer
     refined_rows = []
     for _, row in df.iterrows():
-        # 1. Hierarchical Modality 
-        # Check against the list in 'ModalityTags'
+        # Modality Grouping
         tags = row.get('ModalityTags', [])
         parent = "Other"
         for p_mod, keywords in MODALITY_GROUPS.items():
@@ -93,19 +94,15 @@ def load_and_refine_data():
                 parent = p_mod
                 break
         
-        # 2. Financial Normalization
-        # Using keys from your previous webapp script (DealValue, Upfront)
+        # Financial Ratios
         val_m = parse_currency(row.get('DealValue', ''))
-        up_m = parse_currency(row.get('Upfront', '')) # Check if Upfront exists in arrow
+        up_m = parse_currency(row.get('Upfront', ''))
         ratio = (up_m / val_m) if val_m > 0 else 0.0
 
         refined_rows.append({
-            'ID': row.get('ID'),
-            'Date': row.get('Date'),
             'ParentModality': parent,
-            'SubModalities': tags, # Keep original tags for the card
+            'SubModalities': tags,
             'TotalValueM': val_m,
-            'UpfrontM': up_m,
             'UpfrontRatio': ratio,
             'DisplayValue': row.get('DealValue', 'N/A'),
             'PartnerA': row.get('PartnerA', 'N/A'),
@@ -114,10 +111,9 @@ def load_and_refine_data():
             'Insight': row.get('Insight', ''),
             'Title': row.get('Title', ''),
             'Summary': row.get('Summary', ''),
-            'Category': row.get('Category', 'Other'),
+            'Date': row.get('Date'),
             'Link': row.get('Link', '#')
         })
-    
     return pd.DataFrame(refined_rows)
 
 try:
@@ -126,71 +122,65 @@ try:
     # 4. Sidebar BI Filters
     st.sidebar.title("SerGene Intelligence")
     
-    # Simple Access Check
-    with st.sidebar.expander("🔐 Access", expanded=False):
-        password = st.text_input("Code", type="password")
-        is_auth = (password == "SerGene2024")
-
-    # BI Filters
     all_parents = ["All"] + sorted(df['ParentModality'].unique().tolist())
     selected_parent = st.sidebar.selectbox("Broad Modality", all_parents)
     
-    # Range Slider for Big Deals
     max_val = int(df['TotalValueM'].max()) if not df.empty else 1000
     min_val_filter = st.sidebar.slider("Min Deal Value ($M)", 0, max_val, 0)
 
-    # 5. Filter Application
+    # 5. Apply Filters
     filtered_df = df.copy()
     if selected_parent != "All":
         filtered_df = filtered_df[filtered_df['ParentModality'] == selected_parent]
     filtered_df = filtered_df[filtered_df['TotalValueM'] >= min_val_filter]
 
-    # Limit view for guests
-    display_df = filtered_df if is_auth else filtered_df.head(20)
-
-    # 6. BI Header Metrics (Summary of Current View)
+    # 6. Top Metrics
     st.title("Strategic Deal Stream")
     m1, m2, m3 = st.columns(3)
-    m1.metric("Deals Found", len(filtered_df))
+    m1.metric("Active Deals", len(filtered_df))
     m2.metric("Market Volume", f"${filtered_df['TotalValueM'].sum()/1000:.1f}B")
     
-    # Calculate Avg Upfront Ratio for deals that have financial data
     valid_ratios = filtered_df[filtered_df['UpfrontRatio'] > 0]['UpfrontRatio']
     avg_r = valid_ratios.mean() if not valid_ratios.empty else 0
-    m3.metric("Avg. Cash Intensity", f"{avg_r:.1%}")
+    m3.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
 
-    # 7. Card Display
-    for _, row in display_df.iterrows():
-        # Visual Logic for Ratio Bar
+    # 7. Card Loop
+    for _, row in filtered_df.iterrows():
         r_pct = row['UpfrontRatio'] * 100
-        r_color = "#10b981" if r_pct > 25 else "#f59e0b" # Green if high cash, Orange if risky
+        r_color = "#10b981" if r_pct > 25 else "#f59e0b"
         
-        tags_html = " ".join([f'<span class="tag">{html.escape(t)}</span>' for t in row['SubModalities']])
+        tags_html = "".join([f'<span class="tag">{html.escape(t)}</span>' for t in row['SubModalities']])
         
-        st.markdown(f"""
+        # We build the HTML string carefully to avoid syntax errors
+        card_html = f"""
         <div class="deal-card">
             <div style="display: flex; justify-content: space-between; align-items: start; gap: 2rem;">
                 <div style="flex: 2;">
                     <span class="parent-tag">{row['ParentModality']}</span>
-                    <h2 style="color: #3b82f6; font-size: 1.5rem; font-weight: 800; margin-top: 1rem; margin-bottom: 0.5rem;">{row['Insight']}</h2>
-                    <div style="font-weight: 700; color: #0f172a; margin-bottom: 1rem;">{row['Title']}</div>
-                    <p style="color: #475569; font-size: 0.95rem; line-height: 1.6;">{row['Summary']}</p>
-                    <div style="margin-top: 1.5rem;">{tags_html}</div>
+                    <h2 style="color: #3b82f6; font-size: 1.4rem; font-weight: 800; margin-top: 1rem;">{html.escape(str(row['Insight']))}</h2>
+                    <div style="font-weight: 700; color: #0f172a; font-size: 0.95rem; margin-bottom: 0.75rem;">{html.escape(str(row['Title']))}</div>
+                    <p style="color: #475569; font-size: 0.9rem; line-height: 1.5;">{html.escape(str(row['Summary']))}</p>
+                    <div style="margin-top: 1.25rem;">{tags_html}</div>
                 </div>
-                <div style="flex: 1; border-left: 2px solid #f1f5f9; padding-left: 2rem;">
+                <div style="flex: 1; border-left: 1px solid #f1f5f9; padding-left: 1.5rem;">
                     <div>
-                        <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Total Deal Value</p>
-                        <p style="font-size: 1.8rem; font-weight: 900; color: #059669;">{row['DisplayValue']}</p>
+                        <p style="font-size: 0.65rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Total Deal Value</p>
+                        <p style="font-size: 1.6rem; font-weight: 900; color: #059669; margin: 0;">{html.escape(str(row['DisplayValue']))}</p>
                     </div>
-                    
-                    <div style="margin-top: 1.5rem;">
-                        <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Cash Upfront Ratio ({r_pct:.1f}%)</p>
-                        <div class="ratio-bar">
-                            <div class="ratio-fill" style="width: {r_pct}%; background-color: {r_color};"></div>
-                        </div>
+                    <div style="margin-top: 1.25rem;">
+                        <p style="font-size: 0.65rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Upfront Ratio ({r_pct:.1f}%)</p>
+                        <div class="ratio-bar-bg"><div style="height:10px; width:{r_pct}%; background-color:{r_color}; border-radius:5px;"></div></div>
                     </div>
-                    
-                    <div style="margin-top: 1.5rem;">
-                        <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Partners</p>
-                        <p style="font-weight: 800; color: #0f172a; font-size: 1.1rem;">{row['PartnerA']}</p>
-                        <p style="color: #
+                    <div style="margin-top: 1.25rem;">
+                        <p style="font-size: 0.65rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Partners</p>
+                        <p style="font-weight: 800; color: #0f172a; font-size: 1rem; margin: 0;">{html.escape(str(row['PartnerA']))}</p>
+                        <p style="color: #64748b; font-size: 0.8rem; margin: 0;">{html.escape(str(row['PartnerB']))}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """
+        st.markdown(card_html, unsafe_allow_html=True)
+
+except Exception as e:
+    st.error(f"BI Module Error: {e}")
