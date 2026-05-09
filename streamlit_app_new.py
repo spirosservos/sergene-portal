@@ -103,45 +103,52 @@ def load_and_refine_data():
     
     refined_rows = []
     for _, row in df.iterrows():
-        # 1. Start with existing tags from the ModalityTags column
-        tags = list(row.get('ModalityTags', []))
-        if not isinstance(tags, (list, np.ndarray)): 
-            tags = []
+        # 1. Initialize tags from the existing list
+        tags = []
+        raw_tags = row.get('ModalityTags')
+        if isinstance(raw_tags, (list, np.ndarray)):
+            tags = [str(t).strip() for t in raw_tags if str(t).lower() != 'nan']
         
-        # 2. HARVEST CELL TYPES (Columns 86-89)
-        # We use pd.to_numeric to handle both numbers and "Yes" strings safely
+        # 2. THE UNIVERSAL HARVESTER (Handles 'General' format quirks)
+        # We define search patterns for your specific columns
+        cell_targets = {
+            "msc": "MSCs",
+            "ipsc": "iPSCs",
+            "gamma delta": "γδ T cells",
+            "γδ": "γδ T cells"
+        }
         
-        # Check MSCs
-        msc_val = pd.to_numeric(row.get('MSCs'), errors='coerce')
-        if (msc_val and msc_val > 0) or str(row.get('MSCs')).lower() == 'yes':
-            tags.append("MSCs")
+        # We iterate through every column in the row
+        for col_name in row.index:
+            val = row[col_name]
+            col_lower = str(col_name).lower().strip()
             
-        # Check iPSCs
-        ipsc_val = pd.to_numeric(row.get('iPSCs'), errors='coerce')
-        if (ipsc_val and ipsc_val > 0) or str(row.get('iPSCs')).lower() == 'yes':
-            tags.append("iPSCs")
+            # Check if this cell is 'Truthy' (Number > 0 or string is 'Yes'/'1')
+            is_positive = False
+            try:
+                if float(val) > 0: is_positive = True
+            except:
+                if str(val).lower().strip() in ['yes', 'y', 'true', '1']: is_positive = True
             
-        # Check Gamma Delta (Merging both synonym columns)
-        gd1 = pd.to_numeric(row.get('gamma delta T cells'), errors='coerce')
-        gd2 = pd.to_numeric(row.get('γδ T cells'), errors='coerce')
-        if (gd1 and gd1 > 0) or (gd2 and gd2 > 0) or \
-           str(row.get('gamma delta T cells')).lower() == 'yes' or \
-           str(row.get('γδ T cells')).lower() == 'yes':
-            tags.append("γδ T cells")
+            # If the cell is positive, check if the column name matches our targets
+            if is_positive:
+                for key, display_name in cell_targets.items():
+                    if key in col_lower:
+                        tags.append(display_name)
 
-        # Clean tags: Remove duplicates and "nan" strings
-        tags = list(set([str(t).strip() for t in tags if t and str(t).lower() != 'nan']))
+        # 3. Final cleanup of tags
+        tags = list(set([t for t in tags if t]))
         
-        # 3. Determine Broad Modality for Filtering
+        # 4. Determine Broad Modality for Filtering
         parent = "Other"
-        normalized_tags = [t.lower() for t in tags]
+        norm_tags = [t.lower() for t in tags]
         for group_name, keywords in MODALITY_GROUPS.items():
             lower_kws = [k.lower() for k in keywords]
-            if any(t in lower_kws for t in normalized_tags):
+            if any(t in lower_kws for t in norm_tags):
                 parent = group_name
                 break
         
-        # 4. Financial Normalization
+        # 5. Financials
         val_m = parse_currency(row.get('DealValue', ''))
         up_m = parse_currency(row.get('Upfront', ''))
         ratio = (up_m / val_m) if val_m > 0 else 0.0
@@ -151,7 +158,7 @@ def load_and_refine_data():
             'Date': row.get('Date'),
             'DisplayDate': row.get('Date').strftime('%b %d, %Y') if pd.notnull(row.get('Date')) else "N/A",
             'ParentModality': parent,
-            'SubModalities': tags, # These tags now include MSCs, iPSCs, etc.
+            'SubModalities': tags, 
             'TA': row.get('TA', 'Other/General'),
             'Category': row.get('Category', 'N/A'),
             'TotalValueM': val_m,
