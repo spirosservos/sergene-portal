@@ -109,32 +109,29 @@ def load_and_refine_data():
         if isinstance(raw_tags, (list, np.ndarray)):
             tags = [str(t).strip() for t in raw_tags if str(t).lower() != 'nan']
         
-        # 2. THE UNIVERSAL HARVESTER (Handles 'General' format quirks)
-        # We define search patterns for your specific columns
-        cell_targets = {
-            "msc": "MSCs",
-            "ipsc": "iPSCs",
-            "gamma delta": "γδ T cells",
-            "γδ": "γδ T cells"
-        }
-        
-        # We iterate through every column in the row
+        # 2. THE UNIFIED HARVESTER
         for col_name in row.index:
             val = row[col_name]
             col_lower = str(col_name).lower().strip()
             
-            # Check if this cell is 'Truthy' (Number > 0 or string is 'Yes'/'1')
+            # Check if the cell is 'Positive' (Number > 0 or string 'Yes')
             is_positive = False
             try:
                 if float(val) > 0: is_positive = True
             except:
                 if str(val).lower().strip() in ['yes', 'y', 'true', '1']: is_positive = True
             
-            # If the cell is positive, check if the column name matches our targets
+            # If positive, we map the column name to a professional Tag
             if is_positive:
-                for key, display_name in cell_targets.items():
-                    if key in col_lower:
-                        tags.append(display_name)
+                if "msc" in col_lower:
+                    tags.append("MSCs")
+                
+                elif "ipsc" in col_lower:
+                    tags.append("iPSCs")
+                
+                # This line solves the Seagen (English) & Takeda (Greek) mismatch
+                elif any(x in col_lower for x in ["gamma", "delta", "γ", "δ"]):
+                    tags.append("γδ T cells")
 
         # 3. Final cleanup of tags
         tags = list(set([t for t in tags if t]))
