@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import numpy as np  # Added to fix the 'np' is not defined error
+import numpy as np
 import html
 import re
 from datetime import datetime
@@ -18,7 +18,6 @@ MODALITY_GROUPS = {
 }
 
 def parse_currency(val_str):
-    """Converts deal strings into numeric Millions for BI analysis."""
     if not val_str or pd.isna(val_str) or val_str == "" or val_str == "nan":
         return 0.0
     try:
@@ -52,11 +51,7 @@ st.markdown("""
         border: 1px solid #bfdbfe;
         letter-spacing: 0.05em;
     }
-    .source-link {
-        color: #3b82f6;
-        text-decoration: none;
-        font-weight: 800;
-    }
+    .source-link { color: #3b82f6; text-decoration: none; font-weight: 800; }
     .source-link:hover { text-decoration: underline; color: #2563eb; }
     .tag {
         display: inline-block;
@@ -84,7 +79,6 @@ st.markdown("""
 # 3. Load & Refine Data
 @st.cache_data
 def load_and_refine_data():
-    # Load from the provided Arrow file
     df = pd.read_feather("sg_intel_assets.arrow") 
     
     if 'Date' in df.columns:
@@ -93,18 +87,15 @@ def load_and_refine_data():
     
     refined_rows = []
     for _, row in df.iterrows():
-        # Modality Tags processing
         tags = row.get('ModalityTags', [])
         if not isinstance(tags, (list, np.ndarray)): tags = []
         
-        # Determine Parent Category
         parent = "Other"
         for p_mod, keywords in MODALITY_GROUPS.items():
             if any(tag in keywords for tag in tags):
                 parent = p_mod
                 break
         
-        # Normalize Financials for Ratio Calculation
         val_m = parse_currency(row.get('DealValue', ''))
         up_m = parse_currency(row.get('Upfront', ''))
         ratio = (up_m / val_m) if val_m > 0 else 0.0
@@ -119,7 +110,6 @@ def load_and_refine_data():
             'DisplayValue': row.get('DealValue', 'N/A'),
             'PartnerA': row.get('PartnerA', 'N/A'),
             'PartnerB': row.get('PartnerB', 'N/A'),
-            'Score': row.get('Score', 0),
             'Insight': row.get('Insight', ''),
             'Title': row.get('Title', ''),
             'Summary': row.get('Summary', ''),
@@ -133,23 +123,18 @@ try:
     # 4. Sidebar Filters
     st.sidebar.title("SerGene Intelligence")
     
-    # FILTER 1: Date Range
     min_date = df['Date'].min().to_pydatetime()
     max_date = df['Date'].max().to_pydatetime()
     selected_dates = st.sidebar.date_input("Date Range", value=(min_date, max_date))
 
-    # FILTER 2: Broad Modality
     all_parents = ["All"] + sorted(df['ParentModality'].unique().tolist())
     selected_parent = st.sidebar.selectbox("Broad Modality", all_parents)
     
-    # FILTER 3: Sub-Modality / Cell Types
     all_tags = sorted(list(set([t for sublist in df['SubModalities'] for t in sublist])))
     selected_subs = st.sidebar.multiselect("Specific Cell Types / Platforms", all_tags)
 
-    # 5. Filter Application
+    # 5. Apply Filters
     filtered_df = df.copy()
-    
-    # Date Filtering (Checks for start/end selection)
     if isinstance(selected_dates, (list, tuple)) and len(selected_dates) == 2:
         start_d, end_d = selected_dates
         filtered_df = filtered_df[(filtered_df['Date'].dt.date >= start_d) & (filtered_df['Date'].dt.date <= end_d)]
@@ -160,7 +145,7 @@ try:
     if selected_subs:
         filtered_df = filtered_df[filtered_df['SubModalities'].apply(lambda x: any(s in x for s in selected_subs))]
 
-    # 6. Main Dashboard Header
+    # 6. Dashboard Header
     st.title("Strategic Deal Stream")
     m1, m2, m3 = st.columns(3)
     m1.metric("Active Deals", len(filtered_df))
@@ -168,40 +153,64 @@ try:
     
     valid_ratios = filtered_df[filtered_df['UpfrontRatio'] > 0]['UpfrontRatio']
     avg_r = valid_ratios.mean() if not valid_ratios.empty else 0
-    m3.metric("Avg. Cash Intensity", f"{avg_r:.1%}")
+    m3.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
 
-    # 7. Card Rendering
+    # 7. Card Template (Separated to avoid SyntaxErrors)
+    CARD_TEMPLATE = """
+    <div class="deal-card">
+        <div style="display: flex; justify-content: space-between; align-items: start; gap: 2rem;">
+            <div style="flex: 2;">
+                <span class="parent-tag">{parent_mod}</span>
+                <h2 style="margin-top: 1rem;">
+                    <a href="{link}" target="_blank" class="source-link">{insight}</a>
+                </h2>
+                <div style="font-weight: 700; color: #0f172a; font-size: 1.15rem; margin-bottom: 1rem;">{title}</div>
+                <p style="color: #475569; font-size: 0.95rem; line-height: 1.6;">{summary}</p>
+                <div style="margin-top: 1.5rem;">{tags}</div>
+            </div>
+            <div style="flex: 1; border-left: 2px solid #f1f5f9; padding-left: 2rem;">
+                <div>
+                    <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Total Deal Value</p>
+                    <p style="font-size: 1.8rem; font-weight: 900; color: #059669; margin: 0;">{value}</p>
+                </div>
+                <div style="margin-top: 1.5rem;">
+                    <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Cash Upfront Ratio ({ratio_pct}%)</p>
+                    <div class="ratio-bar-bg">
+                        <div style="height:10px; width:{ratio_pct}%; background-color:{ratio_color}; border-radius:5px;"></div>
+                    </div>
+                </div>
+                <div style="margin-top: 1.5rem;">
+                    <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Partners</p>
+                    <p style="font-weight: 800; color: #0f172a; font-size: 1.15rem; margin: 0;">{pA}</p>
+                    <p style="color: #64748b; font-size: 0.85rem;">{pB}</p>
+                </div>
+                <div style="margin-top: 2rem;">
+                    <a href="{link}" target="_blank" style="text-decoration: none; color: white; background-color: #3b82f6; padding: 0.7rem 1.2rem; border-radius: 0.75rem; font-size: 0.8rem; font-weight: 800;">View Original Source</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+
     for _, row in filtered_df.iterrows():
-        r_pct = row['UpfrontRatio'] * 100
+        r_pct = round(row['UpfrontRatio'] * 100, 1)
         r_color = "#10b981" if r_pct > 25 else "#f59e0b"
         tags_html = "".join([f'<span class="tag">{html.escape(t)}</span>' for t in row['SubModalities']])
         
-        # Clickable source link
-        clean_link = str(row['Link'])
-        
-        st.markdown(f"""
-        <div class="deal-card">
-            <div style="display: flex; justify-content: space-between; align-items: start; gap: 2rem;">
-                <div style="flex: 2;">
-                    <span class="parent-tag">{row['ParentModality']}</span>
-                    <h2 style="margin-top: 1rem;">
-                        <a href="{clean_link}" target="_blank" class="source-link">{html.escape(str(row['Insight']))}</a>
-                    </h2>
-                    <div style="font-weight: 700; color: #0f172a; font-size: 1rem; margin-bottom: 1rem;">{html.escape(str(row['Title']))}</div>
-                    <p style="color: #475569; font-size: 0.95rem; line-height: 1.6;">{html.escape(str(row['Summary']))}</p>
-                    <div style="margin-top: 1.5rem;">{tags_html}</div>
-                </div>
-                <div style="flex: 1; border-left: 2px solid #f1f5f9; padding-left: 2rem;">
-                    <div>
-                        <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Total Deal Value</p>
-                        <p style="font-size: 1.8rem; font-weight: 900; color: #059669; margin: 0;">{html.escape(str(row['DisplayValue']))}</p>
-                    </div>
-                    <div style="margin-top: 1.5rem;">
-                        <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Cash Upfront Ratio ({r_pct:.1f}%)</p>
-                        <div class="ratio-bar-bg"><div style="height:10px; width:{r_pct}%; background-color:{r_color}; border-radius:5px;"></div></div>
-                    </div>
-                    <div style="margin-top: 1.5rem;">
-                        <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Partners</p>
-                        <p style="font-weight: 800; color: #0f172a; font-size: 1.15rem; margin: 0;">{html.escape(str(row['PartnerA']))}</p>
-                        <p style="color: #64748b; font-size: 0.85rem;">{html.escape(str(row['PartnerB']))}</p>
-                    </div>
+        # Inject values into the template
+        st.markdown(CARD_TEMPLATE.format(
+            parent_mod=row['ParentModality'],
+            link=str(row['Link']),
+            insight=html.escape(str(row['Insight'])),
+            title=html.escape(str(row['Title'])),
+            summary=html.escape(str(row['Summary'])),
+            tags=tags_html,
+            value=html.escape(str(row['DisplayValue'])),
+            ratio_pct=r_pct,
+            ratio_color=r_color,
+            pA=html.escape(str(row['PartnerA'])),
+            pB=html.escape(str(row['PartnerB']))
+        ), unsafe_allow_html=True)
+
+except Exception as e:
+    st.error(f"BI Module Error: {e}")
