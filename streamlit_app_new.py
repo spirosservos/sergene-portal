@@ -5,6 +5,16 @@ import html
 import re
 import os
 from datetime import datetime
+from google import genai  # <--- Make sure this import is here!
+# --- 1. AI INITIALIZATION (Starting at Line 9) ---
+try:
+    GENAI_KEY = st.secrets["GEMINI_API_KEY"]
+except:
+    # Fallback for local testing
+    GENAI_KEY = "AIzaSyBhxq6Io1WSNEhb1ZSQMH4LBiQItx9cr1U"
+
+ai_client = genai.Client(api_key=GENAI_KEY)
+AI_MODEL = "gemini-2.0-flash-lite"
 
 # ==========================================
 # 1. PAGE CONFIGURATION
@@ -258,18 +268,46 @@ try:
         with c3:
             st.write("**Development Stage**")
             st.bar_chart(stats_df['Stage'].value_counts(), color="#6366f1")
+            
 
+    # --- THE AI STRATEGIC BRIEF BUTTON (Paste this here) ---
+    st.write("") # Adds a tiny bit of spacing
     if st.button("🪄 Generate AI Strategic Brief"):
         if is_authenticated:
-            st.markdown(f"""
-                <div class="ai-strategy-box">
-                    <h3 style="margin-top:0;">🤖 SerGene AI Strategy Brief</h3>
-                    <p>Current analysis of <b>{len(stats_df)} deals</b> shows a high concentration in <b>{stats_df['TA'].mode()[0] if not stats_df.empty else 'N/A'}</b>.</p>
-                </div>
-            """, unsafe_allow_html=True)
+            # Paying users get the real deal
+            with st.status("🤖 SerGene AI is analyzing current deal flow...", expanded=True):
+                # Prepare a summary of the deals currently visible in the filters
+                deal_list = ""
+                # We take the top 20 deals based on your current filters
+                for _, r in stats_df.head(20).iterrows():
+                    deal_list += f"- {r['PartnerA']} & {r['PartnerB']}: {r['Insight']}\n"
+
+                prompt = f"""
+                You are a Senior Biotech Strategic Analyst. Analyze these recent deals:
+                {deal_list}
+                
+                Provide a professional 3-point summary:
+                1. What is the biggest trend in this specific segment?
+                2. What does this suggest about the current market risk appetite?
+                3. A 1-sentence 'Strategic Outlook' for an investor.
+                
+                Keep the tone executive, objective, and data-driven.
+                """
+                
+                try:
+                    response = ai_client.models.generate_content(model=AI_MODEL, contents=prompt)
+                    st.markdown(f"""
+                        <div class="ai-strategy-box">
+                            <h3 style="margin-top:0;">🤖 Strategic Market Brief</h3>
+                            <p style="white-space: pre-wrap;">{response.text}</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"AI Analysis currently unavailable: {str(e)}")
         else:
+            # Guests see this instead
             st.warning("🔒 The AI Strategic Brief is a Premium Feature.")
-            st.info("Enter your Client Access Code in the sidebar to unlock.")
+            st.info("Please enter your Client Access Code in the sidebar to unlock real-time strategic analysis.")
 
     # ==========================================
     # 7. DEAL CARDS ENGINE (Restored Full HTML)
