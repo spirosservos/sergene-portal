@@ -7,7 +7,7 @@ import os
 from datetime import datetime
 
 # ==========================================
-# 1. PAGE CONFIGURATION & THEME
+# 1. PAGE CONFIGURATION
 # ==========================================
 st.set_page_config(
     page_title="SerGene Strategic Intelligence",
@@ -15,7 +15,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- BI HIERARCHY DEFINITION ---
 MODALITY_GROUPS = {
     "Cell Therapy": ["CAR-T", "TCR", "TILs", "NK Cells", "Tregs", "MSCs", "iPSCs", "gamma delta T cells", "γδ T cells", "Cell Therapy"],
     "Gene Therapy/Editing": ["CRISPR", "Base Editing", "Prime Editing", "Gene Editing", "Gene Therapy"],
@@ -55,24 +54,17 @@ st.markdown("""
     <style>
     .main { background-color: #f8fafc; }
     .stApp { background-color: #f8fafc; }
-    
     .deal-card {
         background-color: white; padding: 2.5rem; border-radius: 1.5rem;
         border: 1px solid #e2e8f0; margin-bottom: 2rem;
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
     }
-    .blurred-card {
-        filter: blur(8px); opacity: 0.5; pointer-events: none; user-select: none;
-    }
-    .date-badge {
-        color: #64748b; font-size: 0.75rem; font-weight: 800;
-        text-transform: uppercase; letter-spacing: 0.075em; margin-bottom: 0.75rem;
-    }
+    .blurred-card { filter: blur(8px); opacity: 0.5; pointer-events: none; user-select: none; }
+    .date-badge { color: #64748b; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; margin-bottom: 0.75rem; }
     .parent-tag {
         background-color: #eff6ff; color: #1e40af; padding: 0.35rem 0.85rem;
         border-radius: 0.75rem; font-size: 0.75rem; font-weight: 800;
-        text-transform: uppercase; border: 1px solid #bfdbfe;
-        display: inline-block; margin-bottom: 1rem;
+        text-transform: uppercase; border: 1px solid #bfdbfe; display: inline-block; margin-bottom: 1rem;
     }
     .source-link { color: #2563eb; text-decoration: none; font-weight: 800; font-size: 1.5rem; }
     .tag {
@@ -81,19 +73,13 @@ st.markdown("""
         font-weight: 700; margin-right: 0.5rem; margin-bottom: 0.5rem;
         border: 1px solid #e2e8f0; text-transform: uppercase;
     }
-    .ratio-bar-container {
-        height: 12px; background-color: #f1f5f9; border-radius: 6px;
-        margin-top: 10px; overflow: hidden; border: 1px solid #e2e8f0;
-    }
+    .ratio-bar-container { height: 12px; background-color: #f1f5f9; border-radius: 6px; margin-top: 10px; overflow: hidden; border: 1px solid #e2e8f0; }
     .cta-banner {
         background-color: #fef2f2; border: 2px dashed #ef4444; 
         padding: 2.5rem; border-radius: 1.5rem; text-align: center; 
         margin-top: 2rem; margin-bottom: 5rem;
     }
-    .ai-strategy-box {
-        background-color: #f0f9ff; border-left: 6px solid #0ea5e9;
-        padding: 1.75rem; border-radius: 0.75rem; margin: 2rem 0;
-    }
+    .ai-strategy-box { background-color: #f0f9ff; border-left: 6px solid #0ea5e9; padding: 1.75rem; border-radius: 0.75rem; margin: 2rem 0; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -102,10 +88,8 @@ st.markdown("""
 # ==========================================
 @st.cache_data
 def load_and_refine_data():
-    if not os.path.exists("sg_intel_assets.arrow"):
-        return pd.DataFrame()
+    if not os.path.exists("sg_intel_assets.arrow"): return pd.DataFrame()
     df = pd.read_feather("sg_intel_assets.arrow") 
-    
     if 'Date' in df.columns:
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         df = df.sort_values(by='Date', ascending=False)
@@ -116,7 +100,6 @@ def load_and_refine_data():
         tags = []
         if isinstance(raw_tags, (list, np.ndarray)):
             tags = [re.sub(r'([a-z])([A-Z])', r'\1 \2', str(t)).strip() for t in raw_tags]
-        
         for col_name in row.index:
             val = row[col_name]
             col_l = str(col_name).lower().strip()
@@ -125,7 +108,6 @@ def load_and_refine_data():
                 if float(val) > 0: is_hit = True
             except:
                 if str(val).lower().strip() in ['yes', 'y', 'true', '1']: is_hit = True
-            
             if is_hit:
                 if "msc" in col_l: tags.append("MSCs")
                 elif "ipsc" in col_l: tags.append("iPSCs")
@@ -135,33 +117,24 @@ def load_and_refine_data():
         parent = "Other"
         norm_tags = [t.lower() for t in tags]
         for group_name, keywords in MODALITY_GROUPS.items():
-            lower_kws = [k.lower() for k in keywords]
-            if any(t in lower_kws for t in norm_tags):
-                parent = group_name
-                break
+            if any(k.lower() in norm_tags for k in keywords):
+                parent = group_name; break
         
         val_m = parse_currency(row.get('DealValue', ''))
         up_m = parse_currency(row.get('Upfront', ''))
         ratio = (up_m / val_m) if val_m > 0 else 0.0
 
         refined_rows.append({
-            'ID': row.get('ID', 'N/A'),
-            'Date': row.get('Date'),
+            'ID': row.get('ID', 'N/A'), 'Date': row.get('Date'),
             'DisplayDate': row.get('Date').strftime('%b %d, %Y') if pd.notnull(row.get('Date')) else "N/A",
-            'ParentModality': parent,
-            'SubModalities': tags,
+            'ParentModality': parent, 'SubModalities': tags,
             'TA': str(row.get('TA', 'Other/General')).strip(),
             'Stage': str(row.get('Stage', 'Pre-clinical')).strip(),
-            'Category': row.get('Category', 'N/A'),
-            'TotalValueM': val_m,
-            'UpfrontRatio': ratio,
-            'DisplayValue': str(row.get('DealValue', 'N/A')),
-            'PartnerA': smart_format_company(row.get('PartnerA')),
-            'PartnerB': smart_format_company(row.get('PartnerB')),
-            'Insight': str(row.get('Insight', '')),
-            'Title': str(row.get('Title', '')),
-            'Summary': str(row.get('Summary', '')),
-            'Link': str(row.get('Link', '#'))
+            'Category': row.get('Category', 'N/A'), 'TotalValueM': val_m,
+            'UpfrontRatio': ratio, 'DisplayValue': str(row.get('DealValue', 'N/A')),
+            'PartnerA': smart_format_company(row.get('PartnerA')), 'PartnerB': smart_format_company(row.get('PartnerB')),
+            'Insight': str(row.get('Insight', '')), 'Title': str(row.get('Title', '')),
+            'Summary': str(row.get('Summary', '')), 'Link': str(row.get('Link', '#'))
         })
     return pd.DataFrame(refined_rows)
 
@@ -170,32 +143,21 @@ def load_and_refine_data():
 # ==========================================
 try:
     df_master = load_and_refine_data()
-    
-    # --- SECURE AUTHENTICATION ---
     st.sidebar.title("SerGene Intelligence")
     
-    # Check against Streamlit Secrets
     with st.sidebar.expander("🔑 Client Access", expanded=True):
-        try:
-            MASTER_PASSWORD = st.secrets["access_password"]
-        except:
-            MASTER_PASSWORD = "SerGenePilot2024" # Default for local testing
-            
+        try: MASTER_PASSWORD = st.secrets["access_password"]
+        except: MASTER_PASSWORD = "SerGenePilot2024"
         password_input = st.text_input("Enter Access Code", type="password")
         is_authenticated = (password_input == MASTER_PASSWORD)
-        
-        if is_authenticated:
-            st.success("Full Access Granted")
-        elif password_input != "":
-            st.error("Invalid Code")
+        if is_authenticated: st.success("Full Access Granted")
+        elif password_input != "": st.error("Invalid Code")
 
     st.sidebar.divider()
-
-    # Shared Constraints
     GLOBAL_PREVIEW_LIMIT = 5
     BLUR_LIMIT = 3
 
-    # Sidebar Filters (Population from Master)
+    # SIDEBAR FILTERS (Always show all options from Master)
     date_sel = st.sidebar.date_input("Date Range", value=(df_master['Date'].min(), df_master['Date'].max()))
     sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()))
     sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()))
@@ -204,67 +166,65 @@ try:
     sel_subs = st.sidebar.multiselect("Specific Platforms / Cell Types", all_subs)
     search_term = st.sidebar.text_input("🔍 Search Database")
 
-    # Global Filter Application
-    f_df = df_master.copy()
-    if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
-        sd, ed = date_sel
-        f_df = f_df[(f_df['Date'].dt.date >= sd) & (f_df['Date'].dt.date <= ed)]
-    if sel_tas: f_df = f_df[f_df['TA'].isin(sel_tas)]
-    if sel_stages: f_df = f_df[f_df['Stage'].isin(sel_stages)]
-    if sel_parent != "All": f_df = f_df[f_df['ParentModality'] == sel_parent]
-    if sel_subs: f_df = f_df[f_df['SubModalities'].apply(lambda x: any(s in x for s in sel_subs))]
-    if search_term: f_df = f_df[f_df['Insight'].str.contains(search_term, case=False) | f_df['Title'].str.contains(search_term, case=False)]
+    # 5.1 THE SECURITY LOGIC (The Global Hard Lock)
+    # If guest: They only get the top 5 rows of the MASTER.
+    # If they filter for something NOT in the top 5, they get 0 cards.
+    if not is_authenticated:
+        df_for_rendering = df_master.head(GLOBAL_PREVIEW_LIMIT)
+    else:
+        df_for_rendering = df_master
+
+    # 5.2 APPLY FILTERS
+    # Filter for the Cards
+    f_render = df_for_rendering.copy()
+    # Filter for the Stats (Hidden Gem) - always use full database for stats
+    f_stats = df_master.copy()
+
+    def apply_filters(target_df):
+        df = target_df.copy()
+        if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
+            sd, ed = date_sel
+            df = df[(df['Date'].dt.date >= sd) & (df['Date'].dt.date <= ed)]
+        if sel_tas: df = df[df['TA'].isin(sel_tas)]
+        if sel_stages: df = df[df['Stage'].isin(sel_stages)]
+        if sel_parent != "All": df = df[df['ParentModality'] == sel_parent]
+        if sel_subs: df = df[df['SubModalities'].apply(lambda x: any(s in x for s in sel_subs))]
+        if search_term:
+            df = df[df['Insight'].str.contains(search_term, case=False) | df['Title'].str.contains(search_term, case=False)]
+        return df
+
+    visible_df = apply_filters(f_render)
+    stats_df = apply_filters(f_stats)
 
     # ==========================================
-    # 6. DASHBOARD & ANALYTICS
+    # 6. DASHBOARD & ANALYTICS (The Hidden Gem)
     # ==========================================
     st.title("Strategic Deal Intelligence Stream")
     
     m1, m2, m3 = st.columns(3)
-    m1.metric("Database Depth", len(f_df))
-    m2.metric("Market Volume Analysed", f"${f_df['TotalValueM'].sum()/1000:.1f}B")
-    
-    valid_r = f_df[f_df['UpfrontRatio'] > 0]['UpfrontRatio']
+    # This proves depth: "Database Depth: 85" even if only 2 are visible
+    m1.metric("Database Depth", len(stats_df))
+    m2.metric("Market Volume Analysed", f"${stats_df['TotalValueM'].sum()/1000:.1f}B")
+    valid_r = stats_df[stats_df['UpfrontRatio'] > 0]['UpfrontRatio']
     avg_r = valid_r.mean() if not valid_r.empty else 0
     m3.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
 
     st.divider()
-    
     with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
         c1, c2, c3 = st.columns(3)
-        with c1:
-            st.write("**Modality Mix**")
-            st.bar_chart(f_df['ParentModality'].value_counts(), color="#3b82f6")
-        with c2:
-            st.write("**Therapeutic Focus**")
-            st.bar_chart(f_df['TA'].value_counts(), color="#10b981")
-        with c3:
-            st.write("**Development Stage**")
-            st.bar_chart(f_df['Stage'].value_counts(), color="#6366f1")
+        # Charts show the FULL results (Hidden Gem)
+        with c1: st.write("**Modality Mix**"); st.bar_chart(stats_df['ParentModality'].value_counts(), color="#3b82f6")
+        with c2: st.write("**Therapeutic Focus**"); st.bar_chart(stats_df['TA'].value_counts(), color="#10b981")
+        with c3: st.write("**Development Stage**"); st.bar_chart(stats_df['Stage'].value_counts(), color="#6366f1")
 
-    # NEW: AI Market Brief Generator (Active only if authenticated)
-    if is_authenticated:
-        if st.button("🪄 Generate AI Strategic Brief"):
-            st.markdown(f"""
-                <div class="ai-strategy-box">
-                    <h3 style="margin-top:0;">🤖 SerGene AI Strategy Brief</h3>
-                    <p>Current analysis of <b>{len(f_df)} deals</b> shows a high concentration in <b>{f_df['TA'].mode()[0] if not f_df.empty else 'N/A'}</b>.</p>
-                    <p>Strategic shift observed towards <b>{f_df['Stage'].mode()[0] if not f_df.empty else 'N/A'}</b> assets with a capital intensity of <b>{avg_r:.1%}</b> upfront.</p>
-                </div>
-            """, unsafe_allow_html=True)
+    if is_authenticated and st.button("🪄 Generate AI Strategic Brief"):
+        st.markdown(f'<div class="ai-strategy-box"><h3>🤖 SerGene AI Strategy Brief</h3><p>Analysis of <b>{len(stats_df)} deals</b> shows <b>{stats_df["TA"].mode()[0] if not stats_df.empty else "N/A"}</b> dominance.</p></div>', unsafe_allow_html=True)
 
     # ==========================================
-    # 7. TEASER SPLICING & RENDERING
+    # 7. DEAL CARDS ENGINE
     # ==========================================
-    if not is_authenticated:
-        visible_df = f_df.head(GLOBAL_PREVIEW_LIMIT)
-        blurred_df = f_df.iloc[GLOBAL_PREVIEW_LIMIT : GLOBAL_PREVIEW_LIMIT + BLUR_LIMIT]
-    else:
-        visible_df = f_df
-        blurred_df = pd.DataFrame()
-
-    if not is_authenticated and visible_df.empty and not f_df.empty:
-        st.warning("⚠️ Full segment results are reserved for Client Access.")
+    if not is_authenticated and visible_df.empty and not stats_df.empty:
+        st.warning(f"⚠️ {len(stats_df)} deals match these criteria in the full database, but they are outside the Top {GLOBAL_PREVIEW_LIMIT} preview window.")
 
     CARD_HTML = """
     <div class="deal-card {extra_class}">
@@ -273,17 +233,15 @@ try:
                 <div class="date-badge">{d_date} | {ta} • {stage}</div>
                 <span class="parent-tag">{p_mod}</span>
                 <h2 style="margin-top: 1rem;"><a href="{link}" target="_blank" class="source-link">{insight}</a></h2>
-                <div style="font-weight: 700; color: #0f172a; font-size: 1.1rem; margin-bottom: 0.5rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">{title}</div>
+                <div style="font-weight: 700; color: #0f172a; font-size: 1.1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">{title}</div>
                 <p class="summary-text">{summary}</p>
                 <div style="margin-top: 1rem;">{tags}</div>
             </div>
             <div style="flex: 1; border-left: 2px solid #f1f5f9; padding-left: 2.5rem; min-width: 280px;">
                 <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Total Deal Value</p>
                 <p style="font-size: 1.85rem; font-weight: 900; color: #059669; margin: 0;">{value}</p>
-                <div style="margin-top: 2rem;">
-                    <p style="font-weight: 800; color: #0f172a; font-size: 1.15rem; margin: 0;">{pA}</p>
-                    <p style="color: #64748b; font-size: 0.85rem;">{pB}</p>
-                </div>
+                <p style="font-weight: 800; color: #0f172a; font-size: 1.15rem; margin-top: 1.5rem;">{pA}</p>
+                <p style="color: #64748b; font-size: 0.85rem;">{pB}</p>
             </div>
         </div>
     </div>
@@ -299,7 +257,8 @@ try:
         ), unsafe_allow_html=True)
 
     if not is_authenticated:
-        for _, row in blurred_df.iterrows():
+        # Blurred teasers always come from the Master list (deals 6, 7, 8)
+        for _, row in df_master.iloc[GLOBAL_PREVIEW_LIMIT : GLOBAL_PREVIEW_LIMIT + BLUR_LIMIT].iterrows():
             st.markdown(CARD_HTML.format(
                 extra_class="blurred-card", d_date=row['DisplayDate'], ta=row['TA'], stage=row['Stage'],
                 p_mod=row['ParentModality'], link="#", insight="[LOCKED INSIGHT]",
@@ -307,22 +266,8 @@ try:
                 value="$$$,$$$", pA="[LOCKED]", pB="[LOCKED]"
             ), unsafe_allow_html=True)
 
-        # --- CTA BANNER WITH PROFESSIONAL EMAIL TEMPLATE ---
         mailto_link = "mailto:spiros@sergenebio.co.uk?subject=SerGene Strategic Portal Access Inquiry&body=Hi Spiros,%0D%0A%0D%0AI would like to request an access code for the SerGene Strategic Deal Portal.%0D%0A%0D%0AName:%0D%0ACompany:"
-        
-        st.markdown(f"""
-            <div class="cta-banner">
-                <h2 style="color: #991b1b; margin-top: 0;">🔒 Unlock Full Strategic Access</h2>
-                <p style="font-size: 1.1rem; color: #b91c1c; margin-bottom: 1.5rem;">
-                    Analyze the full historical database and generate custom AI Strategic Briefs.
-                </p>
-                <a href="{mailto_link}" 
-                   style="text-decoration: none; color: white; background-color: #ef4444; 
-                   padding: 1rem 2rem; border-radius: 0.75rem; font-weight: 800; font-size: 1.1rem;">
-                   Request Access Code
-                </a>
-            </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f'<div class="cta-banner"><h2>🔒 Unlock Full Strategic Access</h2><p>Analyze the full database and generate custom AI Strategic Briefs.</p><a href="{mailto_link}" style="text-decoration: none; color: white; background-color: #ef4444; padding: 1rem 2rem; border-radius: 0.75rem; font-weight: 800; font-size: 1.1rem;">Request Access Code</a></div>', unsafe_allow_html=True)
 
 except Exception as e:
     st.error(f"BI Module Error: {e}")
