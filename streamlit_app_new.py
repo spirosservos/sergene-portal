@@ -103,52 +103,42 @@ def load_and_refine_data():
     
     refined_rows = []
     for _, row in df.iterrows():
-        # 1. Initialize tags
-        tags = []
+        # 1. Harvest Initial Tags & Fix Spaces (e.g., CellTherapy -> Cell Therapy)
         raw_tags = row.get('ModalityTags')
+        tags = []
         if isinstance(raw_tags, (list, np.ndarray)):
-            # NEW: Split CamelCase (e.g., "CellTherapy" -> "Cell Therapy")
             tags = [re.sub(r'([a-z])([A-Z])', r'\1 \2', str(t)).strip() for t in raw_tags]
-
-        # 2. THE UNIFIED HARVESTER
+        
+        # 2. Unified Harvester (MSCs, iPSCs, and Unified Gamma Delta)
         for col_name in row.index:
             val = row[col_name]
-            col_lower = str(col_name).lower().strip()
+            col_l = str(col_name).lower().strip()
             
-            is_positive = False
+            # Truthy check (Number > 0 or string "Yes")
+            is_hit = False
             try:
-                if float(val) > 0: is_positive = True
+                if float(val) > 0: is_hit = True
             except:
-                if str(val).lower().strip() in ['yes', 'y', 'true', '1']: is_positive = True
+                if str(val).lower().strip() in ['yes', 'y', 'true', '1']: is_hit = True
             
-            if is_positive:
-                if "msc" in col_lower: tags.append("MSCs")
-                elif "ipsc" in col_lower: tags.append("iPSCs")
-                elif any(x in col_lower for x in ["gamma", "delta", "γ", "δ"]):
-                    tags.append("γδ T cells")
+            if is_hit:
+                if "msc" in col_l: tags.append("MSCs")
+                elif "ipsc" in col_l: tags.append("iPSCs")
+                elif any(x in col_l for x in ["gamma", "delta", "γ", "δ"]): tags.append("γδ T cells")
 
-        # 3. Final cleanup and Space Normalization
-        # This ensures "CellTherapy" becomes "Cell Therapy" for all tags
-        clean_tags = []
-        for t in tags:
-            # Insert space between lower and upper case if joined
-            normalized = re.sub(r'([a-z])([A-Z])', r'\1 \2', str(t))
-            normalized = normalized.strip()
-            if normalized and normalized.lower() != 'nan':
-                clean_tags.append(normalized)
+        # Clean tags (Remove duplicates/NaNs)
+        tags = list(set([t for t in tags if t and str(t).lower() != 'nan']))
         
-        tags = list(set(clean_tags))
-        
-        # 4. Determine Broad Modality
+        # 3. Determine Parent Modality
         parent = "Other"
         norm_tags = [t.lower() for t in tags]
         for group_name, keywords in MODALITY_GROUPS.items():
             lower_kws = [k.lower() for k in keywords]
             if any(t in lower_kws for t in norm_tags):
-                parent = group_name # This will be "Cell Therapy" (with the space)
+                parent = group_name
                 break
         
-        # 5. Financials
+        # 4. Financial Normalization
         val_m = parse_currency(row.get('DealValue', ''))
         up_m = parse_currency(row.get('Upfront', ''))
         ratio = (up_m / val_m) if val_m > 0 else 0.0
@@ -158,8 +148,9 @@ def load_and_refine_data():
             'Date': row.get('Date'),
             'DisplayDate': row.get('Date').strftime('%b %d, %Y') if pd.notnull(row.get('Date')) else "N/A",
             'ParentModality': parent,
-            'SubModalities': tags, 
-            'TA': row.get('TA', 'Other/General'),
+            'SubModalities': tags,
+            'TA': str(row.get('TA', 'Other/General')).strip(),
+            'Stage': str(row.get('Stage', 'Pre-clinical')).strip(),
             'Category': row.get('Category', 'N/A'),
             'TotalValueM': val_m,
             'UpfrontRatio': ratio,
@@ -174,41 +165,49 @@ def load_and_refine_data():
     return pd.DataFrame(refined_rows)
 
 # ==========================================
-# 5. UI & FILTER LOGIC
+# 5. UI & FILTER ENGINE
 # ==========================================
 try:
     df_master = load_and_refine_data()
     if df_master.empty:
-        st.warning("Database not found or empty.")
+        st.warning("Database empty. Please check your data pipeline.")
         st.stop()
 
-    # Sidebar
+    # Sidebar Construction
     st.sidebar.title("SerGene Intelligence")
     
-    # 5.1 Date Range
+    # Date Filter
     min_d = df_master['Date'].min().to_pydatetime()
     max_d = df_master['Date'].max().to_pydatetime()
     date_sel = st.sidebar.date_input("Date Range", value=(min_d, max_d))
 
-    # 5.2 Modality Filters
+    # TA Filter (Multiselect)
+    all_tas = sorted(df_master['TA'].unique().tolist())
+    sel_tas = st.sidebar.multiselect("Therapeutic Area", all_tas)
+
+    # Stage Filter (Multiselect)
+    all_stages = sorted(df_master['Stage'].unique().tolist())
+    sel_stages = st.sidebar.multiselect("Development Stage", all_stages)
+
+    # Modality Filters
     all_parents = ["All"] + sorted(df_master['ParentModality'].unique().tolist())
     sel_parent = st.sidebar.selectbox("Broad Modality", all_parents)
     
     all_subs = sorted(list(set([t for sub in df_master['SubModalities'] for t in sub])))
-    sel_subs = st.sidebar.multiselect("Specific Sub-Modalities", all_subs)
+    sel_subs = st.sidebar.multiselect("Specific Platforms / Cell Types", all_subs)
 
-    # 5.3 Search
+    # Global Search
     search_term = st.sidebar.text_input("🔍 Search Database")
 
-    # Filter Application
+    # Filter Logic
     f_df = df_master.copy()
     if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
         sd, ed = date_sel
         f_df = f_df[(f_df['Date'].dt.date >= sd) & (f_df['Date'].dt.date <= ed)]
-    if sel_parent != "All":
-        f_df = f_df[f_df['ParentModality'] == sel_parent]
-    if sel_subs:
-        f_df = f_df[f_df['SubModalities'].apply(lambda x: any(s in x for s in sel_subs))]
+    if sel_tas: f_df = f_df[f_df['TA'].isin(sel_tas)]
+    if sel_stages: f_df = f_df[f_df['Stage'].isin(sel_stages)]
+    if sel_parent != "All": f_df = f_df[f_df['ParentModality'] == sel_parent]
+    if sel_subs: f_df = f_df[f_df['SubModalities'].apply(lambda x: any(s in x for s in sel_subs))]
     if search_term:
         f_df = f_df[f_df['Insight'].str.contains(search_term, case=False) | f_df['Title'].str.contains(search_term, case=False)]
 
@@ -217,6 +216,7 @@ try:
     # ==========================================
     st.title("Strategic Deal Intelligence Stream")
     
+    # Top-line Metrics
     m1, m2, m3 = st.columns(3)
     m1.metric("Active Deals", len(f_df))
     m2.metric("Market Volume", f"${f_df['TotalValueM'].sum()/1000:.1f}B")
@@ -224,16 +224,20 @@ try:
     avg_r = valid_r.mean() if not valid_r.empty else 0
     m3.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
 
-    # Market Visualizations
+    # Market Visualizations (3-column layout)
     st.divider()
-    with st.expander("📈 Market Analytics Expandable View", expanded=False):
-        c1, c2 = st.columns(2)
+    with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
+        c1, c2, c3 = st.columns(3)
         with c1:
-            st.write("**Modality Distribution**")
+            st.write("**Modality Mix**")
             st.bar_chart(f_df['ParentModality'].value_counts(), color="#3b82f6")
         with c2:
-            st.write("**Top Therapeutic Areas**")
+            st.write("**Therapeutic Focus**")
             st.bar_chart(f_df['TA'].value_counts(), color="#10b981")
+        with c3:
+            st.write("**Development Stage**")
+            st.bar_chart(f_df['Stage'].value_counts(), color="#6366f1")
+        
         st.write("**Most Active Strategic Partners**")
         st.bar_chart(f_df['PartnerA'].value_counts().head(10), horizontal=True, color="#f59e0b")
 
@@ -242,21 +246,20 @@ try:
         st.markdown(f"""
             <div class="ai-strategy-box">
                 <h3 style="margin-top:0;">🤖 SerGene AI Strategy Brief</h3>
-                <p>Analyzing <strong>{len(f_df)} deals</strong>. Market leader in this view: 
-                <strong>{f_df['PartnerA'].mode()[0] if not f_df.empty else 'N/A'}</strong>. 
-                Focus Area: <strong>{f_df['TA'].mode()[0] if not f_df.empty else 'N/A'}</strong>.</p>
+                <p>Analyzing <strong>{len(f_df)} deals</strong>. Top Indication: 
+                <strong>{f_df['TA'].mode()[0] if not f_df.empty else 'N/A'}</strong>. 
+                Common Stage: <strong>{f_df['Stage'].mode()[0] if not f_df.empty else 'N/A'}</strong>.</p>
             </div>
         """, unsafe_allow_html=True)
 
     # ==========================================
     # 7. DEAL CARDS ENGINE
     # ==========================================
-    # FIXED: Placeholders r_pct and r_color now match formatting args exactly
     CARD_TEMPLATE = """
     <div class="deal-card">
         <div style="display: flex; justify-content: space-between; align-items: start; gap: 2.5rem;">
             <div style="flex: 2;">
-                <div class="date-badge">{d_date} | {ta} • {cat}</div>
+                <div class="date-badge">{d_date} | {ta} • {stage} • {cat}</div>
                 <span class="parent-tag">{p_mod}</span>
                 <h2 style="margin-top: 1rem;">
                     <a href="{link}" target="_blank" class="source-link">{insight}</a>
@@ -295,7 +298,7 @@ try:
         tags_h = "".join([f'<span class="tag">{html.escape(str(t))}</span>' for t in row['SubModalities']])
         
         st.markdown(CARD_TEMPLATE.format(
-            d_date=row['DisplayDate'], ta=row['TA'], cat=row['Category'],
+            d_date=row['DisplayDate'], ta=row['TA'], stage=row['Stage'], cat=row['Category'],
             p_mod=row['ParentModality'], link=row['Link'],
             insight=html.escape(row['Insight']), title=html.escape(row['Title']),
             summary=html.escape(row['Summary']), tags=tags_h,
