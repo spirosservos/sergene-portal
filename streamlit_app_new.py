@@ -267,7 +267,28 @@ try:
             ), unsafe_allow_html=True)
 
         mailto_link = "mailto:spiros@sergenebio.co.uk?subject=SerGene Strategic Portal Access Inquiry&body=Hi Spiros,%0D%0A%0D%0AI would like to request an access code for the SerGene Strategic Deal Portal.%0D%0A%0D%0AName:%0D%0ACompany:"
-        st.markdown(f'<div class="cta-banner"><h2>🔒 Unlock Full Strategic Access</h2><p>Analyze the full database and generate custom AI Strategic Briefs.</p><a href="{mailto_link}" style="text-decoration: none; color: white; background-color: #ef4444; padding: 1rem 2rem; border-radius: 0.75rem; font-weight: 800; font-size: 1.1rem;">Request Access Code</a></div>', unsafe_allow_html=True)
+        
+        st.markdown(f"""
+            <div class="cta-banner">
+                <h2 style="color: #991b1b; margin-top: 0;">🔒 Unlock Full Strategic Access</h2>
+                <p style="font-size: 1.1rem; color: #b91c1c; margin-bottom: 1.5rem;">
+                    Analyze the full historical database and generate custom AI Strategic Briefs.
+                </p>
+                <a href="{mailto_link}" 
+                   style="text-decoration: none; color: white; background-color: #ef4444; 
+                   padding: 1rem 2rem; border-radius: 0.75rem; font-weight: 800; font-size: 1.1rem; display: inline-block;">
+                   Request Access Code
+                </a>
+                <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px dashed #fca5a5;">
+                    <p style="font-size: 0.9rem; color: #7f1d1d; margin: 0;">
+                        If the button above does not open your email client, please contact me directly at:
+                    </p>
+                    <p style="font-size: 1.2rem; font-weight: 800; color: #991b1b; margin-top: 0.5rem;">
+                        spiros@sergenebio.co.uk
+                    </p>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
 except Exception as e:
     st.error(f"BI Module Error: {e}")
