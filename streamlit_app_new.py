@@ -90,6 +90,10 @@ st.markdown("""
         padding: 2.5rem; border-radius: 1.5rem; text-align: center; 
         margin-top: 2rem; margin-bottom: 5rem;
     }
+    .ai-strategy-box {
+        background-color: #f0f9ff; border-left: 6px solid #0ea5e9;
+        padding: 1.75rem; border-radius: 0.75rem; margin: 2rem 0;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -162,32 +166,45 @@ def load_and_refine_data():
     return pd.DataFrame(refined_rows)
 
 # ==========================================
-# 5. UI & FILTER ENGINE
+# 5. UI & AUTHENTICATION
 # ==========================================
 try:
     df_master = load_and_refine_data()
     
-    # --- AUTH SETTINGS ---
-    is_authenticated = False 
+    # --- SECURE AUTHENTICATION ---
+    st.sidebar.title("SerGene Intelligence")
+    
+    # Check against Streamlit Secrets
+    with st.sidebar.expander("🔑 Client Access", expanded=True):
+        try:
+            MASTER_PASSWORD = st.secrets["access_password"]
+        except:
+            MASTER_PASSWORD = "SerGenePilot2024" # Default for local testing
+            
+        password_input = st.text_input("Enter Access Code", type="password")
+        is_authenticated = (password_input == MASTER_PASSWORD)
+        
+        if is_authenticated:
+            st.success("Full Access Granted")
+        elif password_input != "":
+            st.error("Invalid Code")
+
+    st.sidebar.divider()
+
+    # Shared Constraints
     GLOBAL_PREVIEW_LIMIT = 5
     BLUR_LIMIT = 3
 
-    st.sidebar.title("SerGene Intelligence")
-    
-    # Sidebar Filters (Always use df_master to show all options)
+    # Sidebar Filters (Population from Master)
     date_sel = st.sidebar.date_input("Date Range", value=(df_master['Date'].min(), df_master['Date'].max()))
     sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()))
     sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()))
     sel_parent = st.sidebar.selectbox("Broad Modality", ["All"] + sorted(df_master['ParentModality'].unique().tolist()))
-    
-    # Sub-Modality Harvesting for Filter
     all_subs = sorted(list(set([t for sub in df_master['SubModalities'] for t in sub])))
     sel_subs = st.sidebar.multiselect("Specific Platforms / Cell Types", all_subs)
-    
     search_term = st.sidebar.text_input("🔍 Search Database")
 
-    # 5.1 APPLY GLOBAL FILTERS (TO FULL DATABASE)
-    # We do this so the Charts and Metrics show the REAL market volume
+    # Global Filter Application
     f_df = df_master.copy()
     if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
         sd, ed = date_sel
@@ -199,20 +216,20 @@ try:
     if search_term: f_df = f_df[f_df['Insight'].str.contains(search_term, case=False) | f_df['Title'].str.contains(search_term, case=False)]
 
     # ==========================================
-    # 6. DASHBOARD & ANALYTICS (Hidden Gem)
+    # 6. DASHBOARD & ANALYTICS
     # ==========================================
     st.title("Strategic Deal Intelligence Stream")
     
     m1, m2, m3 = st.columns(3)
-    m1.metric("Total Strategic Assets", len(f_df)) # Shows full filtered depth
+    m1.metric("Database Depth", len(f_df))
     m2.metric("Market Volume Analysed", f"${f_df['TotalValueM'].sum()/1000:.1f}B")
     
     valid_r = f_df[f_df['UpfrontRatio'] > 0]['UpfrontRatio']
     avg_r = valid_r.mean() if not valid_r.empty else 0
     m3.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
 
-    # Charts: These now accurately show trends for the WHOLE selection
     st.divider()
+    
     with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -225,24 +242,29 @@ try:
             st.write("**Development Stage**")
             st.bar_chart(f_df['Stage'].value_counts(), color="#6366f1")
 
+    # NEW: AI Market Brief Generator (Active only if authenticated)
+    if is_authenticated:
+        if st.button("🪄 Generate AI Strategic Brief"):
+            st.markdown(f"""
+                <div class="ai-strategy-box">
+                    <h3 style="margin-top:0;">🤖 SerGene AI Strategy Brief</h3>
+                    <p>Current analysis of <b>{len(f_df)} deals</b> shows a high concentration in <b>{f_df['TA'].mode()[0] if not f_df.empty else 'N/A'}</b>.</p>
+                    <p>Strategic shift observed towards <b>{f_df['Stage'].mode()[0] if not f_df.empty else 'N/A'}</b> assets with a capital intensity of <b>{avg_r:.1%}</b> upfront.</p>
+                </div>
+            """, unsafe_allow_html=True)
+
     # ==========================================
     # 7. TEASER SPLICING & RENDERING
     # ==========================================
-    
-    # Final Slicing for the Stream
     if not is_authenticated:
-        # We only show the Top 5 of whatever is filtered
         visible_df = f_df.head(GLOBAL_PREVIEW_LIMIT)
-        # We blur the NEXT 3 from the master list (or filtered list)
         blurred_df = f_df.iloc[GLOBAL_PREVIEW_LIMIT : GLOBAL_PREVIEW_LIMIT + BLUR_LIMIT]
     else:
         visible_df = f_df
         blurred_df = pd.DataFrame()
 
-    # 7.1 HANDLING EMPTY RESULTS
     if not is_authenticated and visible_df.empty and not f_df.empty:
-        st.warning("⚠️ These specific results are reserved for Premium Subscribers.")
-        st.info("The graphics above confirm active deal flow in this segment, but the individual records are currently locked.")
+        st.warning("⚠️ Full segment results are reserved for Client Access.")
 
     CARD_HTML = """
     <div class="deal-card {extra_class}">
@@ -267,7 +289,6 @@ try:
     </div>
     """
 
-    # Render Visible
     for _, row in visible_df.iterrows():
         tags_h = "".join([f'<span class="tag">{html.escape(str(t))}</span>' for t in row['SubModalities']])
         st.markdown(CARD_HTML.format(
@@ -277,7 +298,6 @@ try:
             value=html.escape(row['DisplayValue']), pA=html.escape(row['PartnerA']), pB=html.escape(row['PartnerB'])
         ), unsafe_allow_html=True)
 
-    # Render Blurred
     if not is_authenticated:
         for _, row in blurred_df.iterrows():
             st.markdown(CARD_HTML.format(
@@ -287,18 +307,19 @@ try:
                 value="$$$,$$$", pA="[LOCKED]", pB="[LOCKED]"
             ), unsafe_allow_html=True)
 
-        # 7.2 CTA BANNER
+        # --- CTA BANNER WITH PROFESSIONAL EMAIL TEMPLATE ---
+        mailto_link = "mailto:spiros@sergenebio.co.uk?subject=SerGene Strategic Portal Access Inquiry&body=Hi Spiros,%0D%0A%0D%0AI would like to request an access code for the SerGene Strategic Deal Portal.%0D%0A%0D%0AName:%0D%0ACompany:"
+        
         st.markdown(f"""
             <div class="cta-banner">
-                <h2 style="color: #991b1b; margin-top: 0;">🔒 Strategic Intelligence Access</h2>
+                <h2 style="color: #991b1b; margin-top: 0;">🔒 Unlock Full Strategic Access</h2>
                 <p style="font-size: 1.1rem; color: #b91c1c; margin-bottom: 1.5rem;">
-                    Analyze the full <b>{len(df_master)} proprietary records</b>. Unlock TA/Stage filters 
-                    and the <b>AI Executive Brief</b> generator.
+                    Analyze the full historical database and generate custom AI Strategic Briefs.
                 </p>
-                <a href="mailto:info@sergene.com?subject=Strategic Access" 
+                <a href="{mailto_link}" 
                    style="text-decoration: none; color: white; background-color: #ef4444; 
-                   padding: 1rem 2rem; border-radius: 0.75rem; font-weight: 800;">
-                   Request Client Password
+                   padding: 1rem 2rem; border-radius: 0.75rem; font-weight: 800; font-size: 1.1rem;">
+                   Request Access Code
                 </a>
             </div>
         """, unsafe_allow_html=True)
