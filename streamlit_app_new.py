@@ -5,16 +5,22 @@ import html
 import re
 import os
 from datetime import datetime
-from google import genai  # <--- Make sure this import is here!
-# --- 1. AI INITIALIZATION (Starting at Line 9) ---
+from google import genai 
+
+# --- 1. AI INITIALIZATION ---
 try:
+    # This pulls the NEW key you just saved in the Streamlit Dashboard
     GENAI_KEY = st.secrets["GEMINI_API_KEY"]
 except:
-    # Fallback for local testing
-    GENAI_KEY = "AIzaSyBhxq6Io1WSNEhb1ZSQMH4LBiQItx9cr1U"
+    # This keeps your code safe if you run it locally
+    GENAI_KEY = None 
 
-ai_client = genai.Client(api_key=GENAI_KEY)
-AI_MODEL = "gemini-3.1-flash-lite-preview"
+if GENAI_KEY:
+    ai_client = genai.Client(api_key=GENAI_KEY)
+    AI_MODEL = "gemini-3.1-flash-lite-preview"
+else:
+    # This will only show up if you forget to add the key to Streamlit Secrets
+    st.error("AI Configuration Error: Gemini API Key not found.")
 
 # ==========================================
 # 1. PAGE CONFIGURATION
