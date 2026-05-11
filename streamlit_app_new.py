@@ -161,9 +161,14 @@ try:
     date_sel = st.sidebar.date_input("Date Range", value=(df_master['Date'].min(), df_master['Date'].max()))
     sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()))
     sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()))
-    sel_parent = st.sidebar.selectbox("Broad Modality", ["All"] + sorted(df_master['ParentModality'].unique().tolist()))
+    
+    # CHANGED: Selectbox converted to Multiselect for the "x" button functionality
+    all_parents = sorted(df_master['ParentModality'].unique().tolist())
+    sel_parents = st.sidebar.multiselect("Broad Modality", all_parents)
+    
     all_subs = sorted(list(set([t for sub in df_master['SubModalities'] for t in sub])))
     sel_subs = st.sidebar.multiselect("Specific Platforms / Cell Types", all_subs)
+    
     search_term = st.sidebar.text_input("🔍 Search Database")
 
     # 5.1 THE SECURITY LOGIC (The Global Hard Lock)
