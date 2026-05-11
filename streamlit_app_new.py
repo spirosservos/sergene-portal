@@ -289,6 +289,6 @@ try:
                 </div>
             </div>
         """, unsafe_allow_html=True)
-
+        st.sidebar.info("📧 For access: spiros@sergenebio.co.uk")
 except Exception as e:
     st.error(f"BI Module Error: {e}")
