@@ -14,7 +14,7 @@ except:
     GENAI_KEY = "AIzaSyBhxq6Io1WSNEhb1ZSQMH4LBiQItx9cr1U"
 
 ai_client = genai.Client(api_key=GENAI_KEY)
-AI_MODEL = "gemini-2.0-flash-lite"
+AI_MODEL = "gemini-1.5-flash"
 
 # ==========================================
 # 1. PAGE CONFIGURATION
