@@ -162,71 +162,88 @@ def load_and_refine_data():
     return pd.DataFrame(refined_rows)
 
 # ==========================================
-# 5. UI & AUTHENTICATION FOUNDATION
+# 5. UI & FILTER ENGINE
 # ==========================================
 try:
     df_master = load_and_refine_data()
     
-    # --- STEP 2 PREP: AUTHENTICATION CHECK ---
-    # We will connect this to st.secrets in the next step.
-    # For now, guests are locked to the top 5 deals GLOBALLY.
+    # --- AUTH SETTINGS ---
     is_authenticated = False 
     GLOBAL_PREVIEW_LIMIT = 5
     BLUR_LIMIT = 3
 
     st.sidebar.title("SerGene Intelligence")
     
-    # 5.1 PREVIEW RESTRICTION
-    # If not authenticated, we "slice" the master database immediately.
-    # This ensures filters ONLY work on the top 5 deals.
-    if not is_authenticated:
-        df_for_filters = df_master.head(GLOBAL_PREVIEW_LIMIT)
-    else:
-        df_for_filters = df_master
-
-    # 5.2 SIDEBAR FILTERS
+    # Sidebar Filters (Always use df_master to show all options)
     date_sel = st.sidebar.date_input("Date Range", value=(df_master['Date'].min(), df_master['Date'].max()))
     sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()))
     sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()))
     sel_parent = st.sidebar.selectbox("Broad Modality", ["All"] + sorted(df_master['ParentModality'].unique().tolist()))
+    
+    # Sub-Modality Harvesting for Filter
+    all_subs = sorted(list(set([t for sub in df_master['SubModalities'] for t in sub])))
+    sel_subs = st.sidebar.multiselect("Specific Platforms / Cell Types", all_subs)
+    
     search_term = st.sidebar.text_input("🔍 Search Database")
 
-    # 5.3 APPLY FILTERS TO THE SLICED VIEW
-    f_df = df_for_filters.copy()
+    # 5.1 APPLY GLOBAL FILTERS (TO FULL DATABASE)
+    # We do this so the Charts and Metrics show the REAL market volume
+    f_df = df_master.copy()
     if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
         sd, ed = date_sel
         f_df = f_df[(f_df['Date'].dt.date >= sd) & (f_df['Date'].dt.date <= ed)]
     if sel_tas: f_df = f_df[f_df['TA'].isin(sel_tas)]
     if sel_stages: f_df = f_df[f_df['Stage'].isin(sel_stages)]
     if sel_parent != "All": f_df = f_df[f_df['ParentModality'] == sel_parent]
-    if search_term: f_df = f_df[f_df['Insight'].str.contains(search_term, case=False)]
+    if sel_subs: f_df = f_df[f_df['SubModalities'].apply(lambda x: any(s in x for s in sel_subs))]
+    if search_term: f_df = f_df[f_df['Insight'].str.contains(search_term, case=False) | f_df['Title'].str.contains(search_term, case=False)]
 
     # ==========================================
-    # 6. DASHBOARD & ANALYTICS (The "Hidden Gem")
+    # 6. DASHBOARD & ANALYTICS (Hidden Gem)
     # ==========================================
     st.title("Strategic Deal Intelligence Stream")
     
     m1, m2, m3 = st.columns(3)
-    # CRITICAL: We show stats for the WHOLE master database to tease the user
-    m1.metric("Total Strategic Assets", len(df_master))
-    m2.metric("Market Volume Analysed", f"${df_master['TotalValueM'].sum()/1000:.1f}B")
+    m1.metric("Total Strategic Assets", len(f_df)) # Shows full filtered depth
+    m2.metric("Market Volume Analysed", f"${f_df['TotalValueM'].sum()/1000:.1f}B")
     
-    # Show how many deals are currently "Visible" vs "Filtered"
-    m3.metric("Visible Deals", len(f_df))
-    m3.caption("Unlock full database for advanced filtering")
+    valid_r = f_df[f_df['UpfrontRatio'] > 0]['UpfrontRatio']
+    avg_r = valid_r.mean() if not valid_r.empty else 0
+    m3.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
 
+    # Charts: These now accurately show trends for the WHOLE selection
     st.divider()
+    with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.write("**Modality Mix**")
+            st.bar_chart(f_df['ParentModality'].value_counts(), color="#3b82f6")
+        with c2:
+            st.write("**Therapeutic Focus**")
+            st.bar_chart(f_df['TA'].value_counts(), color="#10b981")
+        with c3:
+            st.write("**Development Stage**")
+            st.bar_chart(f_df['Stage'].value_counts(), color="#6366f1")
 
     # ==========================================
-    # 7. THE SECURE DEAL STREAM
+    # 7. TEASER SPLICING & RENDERING
     # ==========================================
     
-    # 7.1 HANDLING EMPTY RESULTS (The Conversion Trigger)
-    if not is_authenticated and f_df.empty:
-        st.warning("⚠️ This specific combination of filters is only available to Premium Subscribers.")
-        st.info(f"There are deals matching these criteria in the full database, but they are outside the Top {GLOBAL_PREVIEW_LIMIT} preview window.")
+    # Final Slicing for the Stream
+    if not is_authenticated:
+        # We only show the Top 5 of whatever is filtered
+        visible_df = f_df.head(GLOBAL_PREVIEW_LIMIT)
+        # We blur the NEXT 3 from the master list (or filtered list)
+        blurred_df = f_df.iloc[GLOBAL_PREVIEW_LIMIT : GLOBAL_PREVIEW_LIMIT + BLUR_LIMIT]
+    else:
+        visible_df = f_df
+        blurred_df = pd.DataFrame()
 
-    # 7.2 CARD RENDERING
+    # 7.1 HANDLING EMPTY RESULTS
+    if not is_authenticated and visible_df.empty and not f_df.empty:
+        st.warning("⚠️ These specific results are reserved for Premium Subscribers.")
+        st.info("The graphics above confirm active deal flow in this segment, but the individual records are currently locked.")
+
     CARD_HTML = """
     <div class="deal-card {extra_class}">
         <div style="display: flex; justify-content: space-between; align-items: start; gap: 2.5rem;">
@@ -236,6 +253,7 @@ try:
                 <h2 style="margin-top: 1rem;"><a href="{link}" target="_blank" class="source-link">{insight}</a></h2>
                 <div style="font-weight: 700; color: #0f172a; font-size: 1.1rem; margin-bottom: 0.5rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">{title}</div>
                 <p class="summary-text">{summary}</p>
+                <div style="margin-top: 1rem;">{tags}</div>
             </div>
             <div style="flex: 1; border-left: 2px solid #f1f5f9; padding-left: 2.5rem; min-width: 280px;">
                 <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Total Deal Value</p>
@@ -249,36 +267,35 @@ try:
     </div>
     """
 
-    # Show Visible Deals
-    for _, row in f_df.iterrows():
+    # Render Visible
+    for _, row in visible_df.iterrows():
+        tags_h = "".join([f'<span class="tag">{html.escape(str(t))}</span>' for t in row['SubModalities']])
         st.markdown(CARD_HTML.format(
             extra_class="", d_date=row['DisplayDate'], ta=row['TA'], stage=row['Stage'],
             p_mod=row['ParentModality'], link=row['Link'], insight=html.escape(row['Insight']),
-            title=html.escape(row['Title']), summary=html.escape(row['Summary']),
+            title=html.escape(row['Title']), summary=html.escape(row['Summary']), tags=tags_h,
             value=html.escape(row['DisplayValue']), pA=html.escape(row['PartnerA']), pB=html.escape(row['PartnerB'])
         ), unsafe_allow_html=True)
 
-    # Show Blurred Teasers (Only if not authenticated)
+    # Render Blurred
     if not is_authenticated:
-        # We grab deals #6, #7, #8 from the master list
-        teasers = df_master.iloc[GLOBAL_PREVIEW_LIMIT : GLOBAL_PREVIEW_LIMIT + BLUR_LIMIT]
-        for _, row in teasers.iterrows():
+        for _, row in blurred_df.iterrows():
             st.markdown(CARD_HTML.format(
                 extra_class="blurred-card", d_date=row['DisplayDate'], ta=row['TA'], stage=row['Stage'],
-                p_mod=row['ParentModality'], link="#", insight="[HIDDEN STRATEGIC TAKEAWAY]",
-                title=html.escape(row['Title']), summary=html.escape(row['Summary']),
-                value="$$$,$$$,$$$", pA="[HIDDEN PARTNER]", pB="[HIDDEN ORIGINATOR]"
+                p_mod=row['ParentModality'], link="#", insight="[LOCKED INSIGHT]",
+                title=html.escape(row['Title']), summary=html.escape(row['Summary']), tags="",
+                value="$$$,$$$", pA="[LOCKED]", pB="[LOCKED]"
             ), unsafe_allow_html=True)
 
-        # 7.3 FINAL CTA BANNER
+        # 7.2 CTA BANNER
         st.markdown(f"""
             <div class="cta-banner">
-                <h2 style="color: #991b1b; margin-top: 0;">🔒 Access the Full Historical Database</h2>
+                <h2 style="color: #991b1b; margin-top: 0;">🔒 Strategic Intelligence Access</h2>
                 <p style="font-size: 1.1rem; color: #b91c1c; margin-bottom: 1.5rem;">
-                    The SerGene Portal contains <b>{len(df_master)} proprietary insights</b>. 
-                    Unlock advanced TA/Stage filtering and the <b>AI Executive Brief</b> generator.
+                    Analyze the full <b>{len(df_master)} proprietary records</b>. Unlock TA/Stage filters 
+                    and the <b>AI Executive Brief</b> generator.
                 </p>
-                <a href="mailto:info@sergene.com?subject=Strategic Access Inquiry" 
+                <a href="mailto:info@sergene.com?subject=Strategic Access" 
                    style="text-decoration: none; color: white; background-color: #ef4444; 
                    padding: 1rem 2rem; border-radius: 0.75rem; font-weight: 800;">
                    Request Client Password
