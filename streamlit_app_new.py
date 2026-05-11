@@ -312,4 +312,46 @@ try:
     """
 
     # 7.1 RENDER VISIBLE CARDS
-    for _, row in visible_df
+    for _, row in visible_df.iterrows():
+        rpct = round(row['UpfrontRatio'] * 100, 1)
+        rcol = "#10b981" if rpct > 25 else "#f59e0b"
+        tags_h = "".join([f'<span class="tag">{html.escape(str(t))}</span>' for t in row['SubModalities']])
+        st.markdown(CARD_HTML.format(
+            extra_class="", d_date=row['DisplayDate'], ta=row['TA'], stage=row['Stage'],
+            p_mod=row['ParentModality'], link=row['Link'], insight=html.escape(row['Insight']),
+            title=html.escape(row['Title']), summary=html.escape(row['Summary']), tags=tags_h,
+            value=html.escape(row['DisplayValue']), r_pct=rpct, r_color=rcol, 
+            pA=html.escape(row['PartnerA']), pB=html.escape(row['PartnerB'])
+        ), unsafe_allow_html=True)
+
+    # 7.2 RENDER BLURRED TEASERS
+    if not is_authenticated:
+        for _, row in df_master.iloc[GLOBAL_PREVIEW_LIMIT : GLOBAL_PREVIEW_LIMIT + BLUR_LIMIT].iterrows():
+            st.markdown(CARD_HTML.format(
+                extra_class="blurred-card", d_date=row['DisplayDate'], ta=row['TA'], stage=row['Stage'],
+                p_mod=row['ParentModality'], link="#", insight="[LOCKED INSIGHT]",
+                title=html.escape(row['Title']), summary=html.escape(row['Summary']), tags="",
+                value="$$$,$$$", r_pct=50, r_color="#cbd5e1", pA="[LOCKED]", pB="[LOCKED]"
+            ), unsafe_allow_html=True)
+
+        # 7.3 CTA BANNER
+        mailto_link = "mailto:spiros@sergenebio.co.uk?subject=Portal Access Inquiry"
+        st.markdown(f"""
+            <div class="cta-banner">
+                <h2 style="color: #991b1b; margin-top: 0;">🔒 Unlock Strategic Access</h2>
+                <p style="font-size: 1.1rem; color: #b91c1c; margin-bottom: 1.5rem;">
+                    Analyze the full historical database and generate custom AI Strategic Briefs.
+                </p>
+                <a href="{mailto_link}" 
+                   style="text-decoration: none; color: white; background-color: #ef4444; 
+                   padding: 1rem 2rem; border-radius: 0.75rem; font-weight: 800; font-size: 1.1rem; display: inline-block;">
+                   Request Access Code
+                </a>
+                <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px dashed #fca5a5;">
+                    <p style="font-size: 0.9rem; color: #7f1d1d; margin: 0;">Fallback Email: <b>spiros@sergenebio.co.uk</b></p>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+except Exception as e:
+    st.error(f"BI Module Error: {e}")
