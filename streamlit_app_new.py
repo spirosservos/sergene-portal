@@ -43,30 +43,15 @@ def parse_currency(val_str):
     except: return 0.0
 
 def smart_format_company(name):
-    """
-    Capitalizes lowercase names (takeda -> Takeda) 
-    but preserves acronyms (BMS remains BMS).
-    """
-    if not name or pd.isna(name) or str(name).lower() == 'nan':
-        return "N/A"
-    
+    """Capitalizes lowercase names but preserves acronyms (BMS, ADC)."""
+    if not name or pd.isna(name) or str(name).lower() == 'nan': return "N/A"
     text = str(name).strip()
-    # Split into words to check each individually
     words = text.split()
-    formatted_words = []
-    
-    for word in words:
-        # If the word is all lowercase, capitalize it
-        if word.islower():
-            formatted_words.append(word.capitalize())
-        # If the word has ANY uppercase letters (BMS, ADC, BioNTech), leave it alone
-        else:
-            formatted_words.append(word)
-            
+    formatted_words = [word.capitalize() if word.islower() else word for word in words]
     return " ".join(formatted_words)
 
 # ==========================================
-# 3. ADVANCED UI STYLING (CSS)
+# 3. ADVANCED UI STYLING (Including Blur Effect)
 # ==========================================
 st.markdown("""
     <style>
@@ -77,7 +62,17 @@ st.markdown("""
         background-color: white; padding: 2.5rem; border-radius: 1.5rem;
         border: 1px solid #e2e8f0; margin-bottom: 2rem;
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+        position: relative;
     }
+    
+    /* The Blur Teaser Style */
+    .blurred-card {
+        filter: blur(8px);
+        opacity: 0.6;
+        pointer-events: none;
+        user-select: none;
+    }
+
     .date-badge {
         color: #64748b; font-size: 0.75rem; font-weight: 800;
         text-transform: uppercase; letter-spacing: 0.075em; margin-bottom: 0.75rem;
@@ -107,6 +102,11 @@ st.markdown("""
         background-color: #f0f9ff; border-left: 6px solid #0ea5e9;
         padding: 1.75rem; border-radius: 0.75rem; margin: 2rem 0;
     }
+    .cta-banner {
+        background-color: #fef2f2; border: 2px dashed #ef4444; 
+        padding: 2.5rem; border-radius: 1.5rem; text-align: center; 
+        margin-top: 2rem; margin-bottom: 5rem;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -126,17 +126,14 @@ def load_and_refine_data():
     
     refined_rows = []
     for _, row in df.iterrows():
-        # 1. Harvest Initial Tags & Fix Spaces (e.g., CellTherapy -> Cell Therapy)
         raw_tags = row.get('ModalityTags')
         tags = []
         if isinstance(raw_tags, (list, np.ndarray)):
             tags = [re.sub(r'([a-z])([A-Z])', r'\1 \2', str(t)).strip() for t in raw_tags]
         
-        # 2. Unified Harvester (MSCs, iPSCs, and Unified Gamma Delta)
         for col_name in row.index:
             val = row[col_name]
             col_l = str(col_name).lower().strip()
-            
             is_hit = False
             try:
                 if float(val) > 0: is_hit = True
@@ -148,10 +145,8 @@ def load_and_refine_data():
                 elif "ipsc" in col_l: tags.append("iPSCs")
                 elif any(x in col_l for x in ["gamma", "delta", "γ", "δ"]): tags.append("γδ T cells")
 
-        # Clean tags (Remove duplicates/NaNs)
         tags = list(set([t for t in tags if t and str(t).lower() != 'nan']))
         
-        # 3. Determine Parent Modality
         parent = "Other"
         norm_tags = [t.lower() for t in tags]
         for group_name, keywords in MODALITY_GROUPS.items():
@@ -160,7 +155,6 @@ def load_and_refine_data():
                 parent = group_name
                 break
         
-        # 4. Financial Normalization
         val_m = parse_currency(row.get('DealValue', ''))
         up_m = parse_currency(row.get('Upfront', ''))
         ratio = (up_m / val_m) if val_m > 0 else 0.0
@@ -177,11 +171,8 @@ def load_and_refine_data():
             'TotalValueM': val_m,
             'UpfrontRatio': ratio,
             'DisplayValue': str(row.get('DealValue', 'N/A')),
-            
-            # --- SMART FORMATTING APPLIED HERE ---
             'PartnerA': smart_format_company(row.get('PartnerA')),
             'PartnerB': smart_format_company(row.get('PartnerB')),
-            
             'Insight': str(row.get('Insight', '')),
             'Title': str(row.get('Title', '')),
             'Summary': str(row.get('Summary', '')),
@@ -194,9 +185,11 @@ def load_and_refine_data():
 # ==========================================
 try:
     df_master = load_and_refine_data()
-    if df_master.empty:
-        st.warning("Database empty. Please check your data pipeline.")
-        st.stop()
+    
+    # --- AUTHENTICATION MOCKUP (For Step 2) ---
+    is_authenticated = False # Set to True to see the full site
+    PREVIEW_LIMIT = 10
+    BLUR_LIMIT = 5
 
     st.sidebar.title("SerGene Intelligence")
     
@@ -204,22 +197,15 @@ try:
     min_d = df_master['Date'].min().to_pydatetime()
     max_d = df_master['Date'].max().to_pydatetime()
     date_sel = st.sidebar.date_input("Date Range", value=(min_d, max_d))
-
-    all_tas = sorted(df_master['TA'].unique().tolist())
-    sel_tas = st.sidebar.multiselect("Therapeutic Area", all_tas)
-
-    all_stages = sorted(df_master['Stage'].unique().tolist())
-    sel_stages = st.sidebar.multiselect("Development Stage", all_stages)
-
+    sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()))
+    sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()))
     all_parents = ["All"] + sorted(df_master['ParentModality'].unique().tolist())
     sel_parent = st.sidebar.selectbox("Broad Modality", all_parents)
-    
     all_subs = sorted(list(set([t for sub in df_master['SubModalities'] for t in sub])))
     sel_subs = st.sidebar.multiselect("Specific Platforms / Cell Types", all_subs)
-
     search_term = st.sidebar.text_input("🔍 Search Database")
 
-    # Filter Logic
+    # Filtering Logic
     f_df = df_master.copy()
     if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
         sd, ed = date_sel
@@ -231,13 +217,22 @@ try:
     if search_term:
         f_df = f_df[f_df['Insight'].str.contains(search_term, case=False) | f_df['Title'].str.contains(search_term, case=False)]
 
+    # --- TEASER SLICING ---
+    if not is_authenticated:
+        visible_df = f_df.head(PREVIEW_LIMIT)
+        blurred_df = f_df.iloc[PREVIEW_LIMIT : PREVIEW_LIMIT + BLUR_LIMIT]
+    else:
+        visible_df = f_df
+        blurred_df = pd.DataFrame()
+
     # ==========================================
-    # 6. DASHBOARD & ANALYTICS
+    # 6. DASHBOARD & ANALYTICS (The Hidden Gem)
     # ==========================================
     st.title("Strategic Deal Intelligence Stream")
     
     m1, m2, m3 = st.columns(3)
-    m1.metric("Active Deals", len(f_df))
+    # These metrics show the TOTAL filtered data to prove database depth
+    m1.metric("Database Deals", len(f_df))
     m2.metric("Market Volume", f"${f_df['TotalValueM'].sum()/1000:.1f}B")
     valid_r = f_df[f_df['UpfrontRatio'] > 0]['UpfrontRatio']
     avg_r = valid_r.mean() if not valid_r.empty else 0
@@ -247,81 +242,77 @@ try:
     with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.write("**Modality Mix**")
-            st.bar_chart(f_df['ParentModality'].value_counts(), color="#3b82f6")
+            st.write("**Modality Mix**"); st.bar_chart(f_df['ParentModality'].value_counts(), color="#3b82f6")
         with c2:
-            st.write("**Therapeutic Focus**")
-            st.bar_chart(f_df['TA'].value_counts(), color="#10b981")
+            st.write("**Therapeutic Focus**"); st.bar_chart(f_df['TA'].value_counts(), color="#10b981")
         with c3:
-            st.write("**Development Stage**")
-            st.bar_chart(f_df['Stage'].value_counts(), color="#6366f1")
-        
-        st.write("**Most Active Strategic Partners**")
-        st.bar_chart(f_df['PartnerA'].value_counts().head(10), horizontal=True, color="#f59e0b")
-
-    if st.button("🪄 Generate AI Market Brief"):
-        st.markdown(f"""
-            <div class="ai-strategy-box">
-                <h3 style="margin-top:0;">🤖 SerGene AI Strategy Brief</h3>
-                <p>Analyzing <strong>{len(f_df)} deals</strong>. Top Indication: 
-                <strong>{f_df['TA'].mode()[0] if not f_df.empty else 'N/A'}</strong>. 
-                Common Stage: <strong>{f_df['Stage'].mode()[0] if not f_df.empty else 'N/A'}</strong>.</p>
-            </div>
-        """, unsafe_allow_html=True)
+            st.write("**Development Stage**"); st.bar_chart(f_df['Stage'].value_counts(), color="#6366f1")
 
     # ==========================================
     # 7. DEAL CARDS ENGINE
     # ==========================================
-    CARD_TEMPLATE = """
-    <div class="deal-card">
+    CARD_HTML = """
+    <div class="deal-card {extra_class}">
         <div style="display: flex; justify-content: space-between; align-items: start; gap: 2.5rem;">
             <div style="flex: 2;">
                 <div class="date-badge">{d_date} | {ta} • {stage} • {cat}</div>
                 <span class="parent-tag">{p_mod}</span>
-                <h2 style="margin-top: 1rem;">
-                    <a href="{link}" target="_blank" class="source-link">{insight}</a>
-                </h2>
+                <h2 style="margin-top: 1rem;"><a href="{link}" target="_blank" class="source-link">{insight}</a></h2>
                 <div style="font-weight: 700; color: #0f172a; font-size: 1.1rem; margin-bottom: 0.5rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">{title}</div>
                 <p class="summary-text">{summary}</p>
                 <div style="margin-top: 1.5rem;">{tags}</div>
             </div>
             <div style="flex: 1; border-left: 2px solid #f1f5f9; padding-left: 2.5rem; min-width: 280px;">
-                <div style="margin-bottom: 2rem;">
-                    <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Total Deal Value</p>
-                    <p style="font-size: 1.85rem; font-weight: 900; color: #059669; margin: 0;">{value}</p>
-                </div>
-                <div style="margin-bottom: 2rem;">
-                    <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Upfront Ratio ({r_pct}%)</p>
-                    <div class="ratio-bar-container">
-                        <div style="height:100%; width:{r_pct}%; background-color:{r_color}; border-radius:6px;"></div>
-                    </div>
-                </div>
-                <div style="margin-bottom: 2rem;">
-                    <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Partners</p>
-                    <p style="font-weight: 800; color: #0f172a; font-size: 1.15rem; margin: 0;">{pA}</p>
-                    <p style="color: #64748b; font-size: 0.85rem; margin-top: 0.25rem;">{pB}</p>
-                </div>
-                <div style="margin-top: 2.5rem;">
-                    <a href="{link}" target="_blank" style="text-decoration: none; color: white; background-color: #2563eb; padding: 0.75rem 1.5rem; border-radius: 0.75rem; font-size: 0.8rem; font-weight: 800; display: block; text-align: center;">View Full Intelligence Source</a>
-                </div>
+                <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Total Deal Value</p>
+                <p style="font-size: 1.85rem; font-weight: 900; color: #059669; margin: 0;">{value}</p>
+                <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 1.5rem;">Upfront Ratio ({r_pct}%)</p>
+                <div class="ratio-bar-container"><div style="height:100%; width:{r_pct}%; background-color:{r_color}; border-radius:6px;"></div></div>
+                <p style="font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-top: 1.5rem;">Partners</p>
+                <p style="font-weight: 800; color: #0f172a; font-size: 1.15rem; margin: 0;">{pA}</p>
+                <p style="color: #64748b; font-size: 0.85rem;">{pB}</p>
             </div>
         </div>
     </div>
     """
 
-    for _, row in f_df.iterrows():
+    # 7.1 RENDER VISIBLE CARDS
+    for _, row in visible_df.iterrows():
         rpct = round(row['UpfrontRatio'] * 100, 1)
         rcol = "#10b981" if rpct > 25 else "#f59e0b"
         tags_h = "".join([f'<span class="tag">{html.escape(str(t))}</span>' for t in row['SubModalities']])
-        
-        st.markdown(CARD_TEMPLATE.format(
-            d_date=row['DisplayDate'], ta=row['TA'], stage=row['Stage'], cat=row['Category'],
-            p_mod=row['ParentModality'], link=row['Link'],
-            insight=html.escape(row['Insight']), title=html.escape(row['Title']),
-            summary=html.escape(row['Summary']), tags=tags_h,
-            value=html.escape(row['DisplayValue']), r_pct=rpct, r_color=rcol,
-            pA=html.escape(row['PartnerA']), pB=html.escape(row['PartnerB'])
+        st.markdown(CARD_HTML.format(
+            extra_class="", d_date=row['DisplayDate'], ta=row['TA'], stage=row['Stage'], cat=row['Category'],
+            p_mod=row['ParentModality'], link=row['Link'], insight=html.escape(row['Insight']),
+            title=html.escape(row['Title']), summary=html.escape(row['Summary']), tags=tags_h,
+            value=html.escape(row['DisplayValue']), r_pct=rpct, r_color=rcol, pA=html.escape(row['PartnerA']), pB=html.escape(row['PartnerB'])
         ), unsafe_allow_html=True)
 
+    # 7.2 RENDER BLURRED CARDS (TEASER)
+    for _, row in blurred_df.iterrows():
+        tags_h = "".join([f'<span class="tag">{html.escape(str(t))}</span>' for t in row['SubModalities']])
+        st.markdown(CARD_HTML.format(
+            extra_class="blurred-card", d_date=row['DisplayDate'], ta=row['TA'], stage=row['Stage'], cat=row['Category'],
+            p_mod=row['ParentModality'], link="#", insight="[HIDDEN STRATEGIC INSIGHT]",
+            title=html.escape(row['Title']), summary=html.escape(row['Summary']), tags=tags_h,
+            value="$$$,$$$,$$$", r_pct=50, r_color="#cbd5e1", pA="[HIDDEN]", pB="[HIDDEN]"
+        ), unsafe_allow_html=True)
+
+    # 7.3 CALL TO ACTION BANNER
+    if not is_authenticated:
+        st.markdown(f"""
+            <div class="cta-banner">
+                <h2 style="color: #991b1b; margin-top: 0;">🔒 Unlock {len(f_df) - PREVIEW_LIMIT} Additional Strategic Assets</h2>
+                <p style="font-size: 1.1rem; color: #b91c1c; margin-bottom: 1.5rem;">
+                    You are viewing a limited preview. Get full access to historical data, 
+                    advanced Stage/TA filters, and the <b>AI Strategic Brief Generator</b>.
+                </p>
+                <a href="mailto:info@sergene.com?subject=Premium Access Inquiry" 
+                   style="text-decoration: none; color: white; background-color: #ef4444; 
+                   padding: 1rem 2rem; border-radius: 0.75rem; font-weight: 800; font-size: 1.1rem;">
+                   Request Full Database Access
+                </a>
+            </div>
+        """, unsafe_allow_html=True)
+
 except Exception as e:
-    st.error(f"SerGene BI Module Initialization Error: {e}")
+    st.error(f"BI Module Error: {e}")
