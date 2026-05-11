@@ -202,7 +202,6 @@ try:
     st.title("Strategic Deal Intelligence Stream")
     
     m1, m2, m3 = st.columns(3)
-    # This proves depth: "Database Depth: 85" even if only 2 are visible
     m1.metric("Database Depth", len(stats_df))
     m2.metric("Market Volume Analysed", f"${stats_df['TotalValueM'].sum()/1000:.1f}B")
     valid_r = stats_df[stats_df['UpfrontRatio'] > 0]['UpfrontRatio']
@@ -210,15 +209,35 @@ try:
     m3.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
 
     st.divider()
+    
     with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
         c1, c2, c3 = st.columns(3)
-        # Charts show the FULL results (Hidden Gem)
-        with c1: st.write("**Modality Mix**"); st.bar_chart(stats_df['ParentModality'].value_counts(), color="#3b82f6")
-        with c2: st.write("**Therapeutic Focus**"); st.bar_chart(stats_df['TA'].value_counts(), color="#10b981")
-        with c3: st.write("**Development Stage**"); st.bar_chart(stats_df['Stage'].value_counts(), color="#6366f1")
+        with c1:
+            st.write("**Modality Mix**")
+            st.bar_chart(stats_df['ParentModality'].value_counts(), color="#3b82f6")
+        with c2:
+            st.write("**Therapeutic Focus**")
+            st.bar_chart(stats_df['TA'].value_counts(), color="#10b981")
+        with c3:
+            st.write("**Development Stage**")
+            st.bar_chart(stats_df['Stage'].value_counts(), color="#6366f1")
 
-    if is_authenticated and st.button("🪄 Generate AI Strategic Brief"):
-        st.markdown(f'<div class="ai-strategy-box"><h3>🤖 SerGene AI Strategy Brief</h3><p>Analysis of <b>{len(stats_df)} deals</b> shows <b>{stats_df["TA"].mode()[0] if not stats_df.empty else "N/A"}</b> dominance.</p></div>', unsafe_allow_html=True)
+    # --- THE "TEASER" AI BRIEF BUTTON ---
+    if st.button("🪄 Generate AI Strategic Brief"):
+        if is_authenticated:
+            # Full Insight for Clients
+            st.markdown(f"""
+                <div class="ai-strategy-box">
+                    <h3 style="margin-top:0;">🤖 SerGene AI Strategy Brief</h3>
+                    <p>Current analysis of <b>{len(stats_df)} deals</b> shows a high concentration in <b>{stats_df['TA'].mode()[0] if not stats_df.empty else 'N/A'}</b>.</p>
+                    <p>Strategic shift observed towards <b>{stats_df['Stage'].mode()[0] if not stats_df.empty else 'N/A'}</b> assets with a capital intensity of <b>{avg_r:.1%}</b> upfront.</p>
+                    <p><i>Note: This is an automated summary based on your current filters.</i></p>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            # Teaser for Guests
+            st.warning("🔒 The AI Strategic Brief is a Premium Feature.")
+            st.info("Enter your Client Access Code in the sidebar to unlock real-time AI analysis of these market trends.")
 
     # ==========================================
     # 7. DEAL CARDS ENGINE
