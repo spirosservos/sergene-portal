@@ -42,6 +42,29 @@ def parse_currency(val_str):
         return float(clean_val)
     except: return 0.0
 
+def smart_format_company(name):
+    """
+    Capitalizes lowercase names (takeda -> Takeda) 
+    but preserves acronyms (BMS remains BMS).
+    """
+    if not name or pd.isna(name) or str(name).lower() == 'nan':
+        return "N/A"
+    
+    text = str(name).strip()
+    # Split into words to check each individually
+    words = text.split()
+    formatted_words = []
+    
+    for word in words:
+        # If the word is all lowercase, capitalize it
+        if word.islower():
+            formatted_words.append(word.capitalize())
+        # If the word has ANY uppercase letters (BMS, ADC, BioNTech), leave it alone
+        else:
+            formatted_words.append(word)
+            
+    return " ".join(formatted_words)
+
 # ==========================================
 # 3. ADVANCED UI STYLING (CSS)
 # ==========================================
@@ -114,7 +137,6 @@ def load_and_refine_data():
             val = row[col_name]
             col_l = str(col_name).lower().strip()
             
-            # Truthy check (Number > 0 or string "Yes")
             is_hit = False
             try:
                 if float(val) > 0: is_hit = True
@@ -155,8 +177,11 @@ def load_and_refine_data():
             'TotalValueM': val_m,
             'UpfrontRatio': ratio,
             'DisplayValue': str(row.get('DealValue', 'N/A')),
-            'PartnerA': str(row.get('PartnerA', 'N/A')),
-            'PartnerB': str(row.get('PartnerB', 'N/A')),
+            
+            # --- SMART FORMATTING APPLIED HERE ---
+            'PartnerA': smart_format_company(row.get('PartnerA')),
+            'PartnerB': smart_format_company(row.get('PartnerB')),
+            
             'Insight': str(row.get('Insight', '')),
             'Title': str(row.get('Title', '')),
             'Summary': str(row.get('Summary', '')),
@@ -173,30 +198,25 @@ try:
         st.warning("Database empty. Please check your data pipeline.")
         st.stop()
 
-    # Sidebar Construction
     st.sidebar.title("SerGene Intelligence")
     
-    # Date Filter
+    # Filters
     min_d = df_master['Date'].min().to_pydatetime()
     max_d = df_master['Date'].max().to_pydatetime()
     date_sel = st.sidebar.date_input("Date Range", value=(min_d, max_d))
 
-    # TA Filter (Multiselect)
     all_tas = sorted(df_master['TA'].unique().tolist())
     sel_tas = st.sidebar.multiselect("Therapeutic Area", all_tas)
 
-    # Stage Filter (Multiselect)
     all_stages = sorted(df_master['Stage'].unique().tolist())
     sel_stages = st.sidebar.multiselect("Development Stage", all_stages)
 
-    # Modality Filters
     all_parents = ["All"] + sorted(df_master['ParentModality'].unique().tolist())
     sel_parent = st.sidebar.selectbox("Broad Modality", all_parents)
     
     all_subs = sorted(list(set([t for sub in df_master['SubModalities'] for t in sub])))
     sel_subs = st.sidebar.multiselect("Specific Platforms / Cell Types", all_subs)
 
-    # Global Search
     search_term = st.sidebar.text_input("🔍 Search Database")
 
     # Filter Logic
@@ -216,7 +236,6 @@ try:
     # ==========================================
     st.title("Strategic Deal Intelligence Stream")
     
-    # Top-line Metrics
     m1, m2, m3 = st.columns(3)
     m1.metric("Active Deals", len(f_df))
     m2.metric("Market Volume", f"${f_df['TotalValueM'].sum()/1000:.1f}B")
@@ -224,7 +243,6 @@ try:
     avg_r = valid_r.mean() if not valid_r.empty else 0
     m3.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
 
-    # Market Visualizations (3-column layout)
     st.divider()
     with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
         c1, c2, c3 = st.columns(3)
@@ -241,7 +259,6 @@ try:
         st.write("**Most Active Strategic Partners**")
         st.bar_chart(f_df['PartnerA'].value_counts().head(10), horizontal=True, color="#f59e0b")
 
-    # AI Brief
     if st.button("🪄 Generate AI Market Brief"):
         st.markdown(f"""
             <div class="ai-strategy-box">
