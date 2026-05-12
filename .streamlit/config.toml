@@ -1,0 +1,4 @@
+[server]
+enableCORS = false
+enableXsrfProtection = false
+frameAncestors = ["https://sergenebio.co.uk", "https://*.squarespace.com"]
