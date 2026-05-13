@@ -191,18 +191,18 @@ def load_and_refine_data():
 # 5. UI & AUTHENTICATION
 # ==========================================
 try:
+    # 1. Load the data
     df_master = load_and_refine_data()
     
-    # Standardize Dates
-    df_master['Date'] = pd.to_datetime(df_master['Date'], errors='coerce')
+    # 2. Advanced Date Parsing (The "May 13th" Fix)
+    df_master['Date'] = pd.to_datetime(df_master['Date'], dayfirst=True, errors='coerce')
     df_master = df_master.dropna(subset=['Date']).sort_values('Date', ascending=False)
 
-    # --- BRANDING ---
+    # --- SIDEBAR UI ---
     st.sidebar.title("🧬 SerGene Intel")
     st.sidebar.markdown("---")
 
-    # --- 1. DATE FILTER (MUST BE FIRST) ---
-    # Placing this here ensures it opens DOWN into the empty sidebar space
+    # A. DATE FILTER (Priority #1 for Iframe Visibility)
     st.sidebar.subheader("📅 Select Timeframe")
     date_sel = st.sidebar.date_input(
         "Date Range", 
@@ -213,8 +213,7 @@ try:
 
     st.sidebar.divider()
 
-    # --- 2. THE ACCESS BOX ---
-    # We keep this closed by default to save vertical space in the Iframe
+    # B. CLIENT ACCESS (Closed by default to save space)
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         try:
             MASTER_PASSWORD = st.secrets["access_password"]
@@ -231,12 +230,52 @@ try:
 
     st.sidebar.divider()
 
-    # --- 3. OTHER FILTERS ---
+    # C. ATTRIBUTE FILTERS
     sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()))
     sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()))
     sel_parents = st.sidebar.multiselect("Broad Modality", sorted(df_master['ParentModality'].unique().tolist()))
     
-    search_term = st.sidebar.text_input("🔍 Search Database")
+    # Text Search Box
+    search_term = st.sidebar.text_input("🔍 Search Companies or Insights")
+
+    # --- THE FILTERING ENGINE (Fixes the 'stats_df' error) ---
+    # We apply the user's selections to create a filtered dataset
+    stats_df = df_master.copy()
+
+    # 1. Filter by Date
+    if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
+        stats_df = stats_df[
+            (stats_df['Date'].dt.date >= date_sel[0]) & 
+            (stats_df['Date'].dt.date <= date_sel[1])
+        ]
+
+    # 2. Filter by Category
+    if sel_tas:
+        stats_df = stats_df[stats_df['TA'].isin(sel_tas)]
+    if sel_stages:
+        stats_df = stats_df[stats_df['Stage'].isin(sel_stages)]
+    if sel_parents:
+        stats_df = stats_df[stats_df['ParentModality'].isin(sel_parents)]
+
+    # 3. Filter by Search Keywords
+    if search_term:
+        stats_df = stats_df[
+            stats_df['PartnerA'].str.contains(search_term, case=False, na=False) |
+            stats_df['PartnerB'].str.contains(search_term, case=False, na=False) |
+            stats_df['Insight'].str.contains(search_term, case=False, na=False)
+        ]
+
+    # --- THE "MOAT" LOGIC ---
+    GLOBAL_PREVIEW_LIMIT = 5
+    BLUR_LIMIT = 3
+    
+    if is_authenticated:
+        visible_df = stats_df # Premium users see everything filtered
+    else:
+        visible_df = stats_df.head(GLOBAL_PREVIEW_LIMIT) # Guests see top 5 filtered
+
+except Exception as e:
+    st.error(f"Critical Error in Section 5: {e}")
 
     # ==========================================
     # 6. DASHBOARD & ANALYTICS (The Hidden Gem)
