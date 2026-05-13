@@ -208,28 +208,63 @@ try:
     # 6. DASHBOARD
     # ==========================================
     st.title("Strategic Deal Intelligence Stream")
+    
     m1, m2, m3 = st.columns(3)
     m1.metric("Database Depth", len(stats_df))
     m2.metric("Market Volume Analysed", f"${stats_df['TotalValueM'].sum()/1000:.1f}B")
+    
     valid_r = stats_df[stats_df['UpfrontRatio'] > 0]['UpfrontRatio']
-    m3.metric("Avg. Upfront Ratio", f"{valid_r.mean():.1%}" if not valid_r.empty else "0%")
+    avg_r = valid_r.mean() if not valid_r.empty else 0
+    m3.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
 
     st.divider()
     
-    with st.expander("📈 Market Trends", expanded=False):
+    with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
         c1, c2, c3 = st.columns(3)
-        with c1: st.bar_chart(stats_df['ParentModality'].value_counts())
-        with c2: st.bar_chart(stats_df['TA'].value_counts())
-        with c3: st.bar_chart(stats_df['Stage'].value_counts())
+        with c1:
+            st.markdown("### **Modality Mix**")
+            st.bar_chart(stats_df['ParentModality'].value_counts(), color="#3b82f6")
+        with c2:
+            st.markdown("### **Therapeutic Focus**")
+            st.bar_chart(stats_df['TA'].value_counts(), color="#10b981")
+        with c3:
+            st.markdown("### **Development Stage**")
+            st.bar_chart(stats_df['Stage'].value_counts(), color="#6366f1")
 
+    # AI Strategic Brief Section
+    st.write("") 
     if st.button("🪄 Generate AI Strategic Brief"):
         if is_authenticated:
-            with st.status("🤖 Analyzing..."):
-                deal_list = "".join([f"- {r['PartnerA']}: {r['Insight']}\n" for _, r in stats_df.head(10).iterrows()])
-                response = ai_client.models.generate_content(model=AI_MODEL, contents=f"Summarize these deals: {deal_list}")
-                st.markdown(f'<div class="ai-strategy-box">{response.text}</div>', unsafe_allow_html=True)
+            with st.status("🤖 SerGene AI is analyzing current deal flow...", expanded=True):
+                deal_list = ""
+                for _, r in stats_df.head(20).iterrows():
+                    deal_list += f"- {r['PartnerA']} & {r['PartnerB']}: {r['Insight']}\n"
+
+                prompt = f"""
+                You are a Senior Biotech Strategic Analyst. Analyze these recent deals:
+                {deal_list}
+                
+                Provide a professional 3-point summary:
+                1. What is the biggest trend in this specific segment?
+                2. What does this suggest about the current market risk appetite?
+                3. A 1-sentence 'Strategic Outlook' for an investor.
+                
+                Keep the tone executive, objective, and data-driven.
+                """
+                
+                try:
+                    response = ai_client.models.generate_content(model=AI_MODEL, contents=prompt)
+                    st.markdown(f"""
+                        <div class="ai-strategy-box">
+                            <h3 style="margin-top:0;">🤖 Strategic Market Brief</h3>
+                            <p style="white-space: pre-wrap;">{response.text}</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                except Exception as ai_e:
+                    st.error(f"AI Analysis currently unavailable: {str(ai_e)}")
         else:
-            st.warning("🔒 Unlock Premium Feature in Sidebar.")
+            st.warning("🔒 The AI Strategic Brief is a Premium Feature.")
+            st.info("Please enter your Client Access Code in the sidebar to unlock real-time strategic analysis.")
 
     # ==========================================
     # 7. DEAL CARDS
