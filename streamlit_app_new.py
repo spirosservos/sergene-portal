@@ -204,16 +204,21 @@ try:
 
     # A. DATE FILTER (Priority #1 for Iframe Visibility)
     st.sidebar.subheader("📅 Select Timeframe")
+    
+    # We use .date() to ensure we are comparing dates to dates, not times
+    min_date = df_master['Date'].min().date()
+    max_date = df_master['Date'].max().date()
+    
     date_sel = st.sidebar.date_input(
         "Date Range", 
-        value=(df_master['Date'].min().date(), df_master['Date'].max().date()),
-        min_value=df_master['Date'].min().date(),
+        value=(min_date, max_date),
+        min_value=min_date,
         max_value=datetime.now().date()
     )
 
     st.sidebar.divider()
 
-    # B. CLIENT ACCESS (Closed by default to save space)
+    # B. CLIENT ACCESS
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         try:
             MASTER_PASSWORD = st.secrets["access_password"]
@@ -235,29 +240,35 @@ try:
     sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()))
     sel_parents = st.sidebar.multiselect("Broad Modality", sorted(df_master['ParentModality'].unique().tolist()))
     
-    # Text Search Box
+    # Re-adding the Sub-Modality filter from your original code
+    all_subs = sorted(list(set([t for sub in df_master['SubModalities'] for t in sub])))
+    sel_subs = st.sidebar.multiselect("Specific Platforms / Cell Types", all_subs)
+    
     search_term = st.sidebar.text_input("🔍 Search Companies or Insights")
 
-    # --- THE FILTERING ENGINE (Fixes the 'stats_df' error) ---
-    # We apply the user's selections to create a filtered dataset
+    # --- THE FILTERING ENGINE ---
     stats_df = df_master.copy()
 
-    # 1. Filter by Date
+    # 1. Filter by Date (Handling the tuple vs single-click)
     if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
         stats_df = stats_df[
             (stats_df['Date'].dt.date >= date_sel[0]) & 
             (stats_df['Date'].dt.date <= date_sel[1])
         ]
 
-    # 2. Filter by Category
+    # 2. Filter by Categories
     if sel_tas:
         stats_df = stats_df[stats_df['TA'].isin(sel_tas)]
     if sel_stages:
         stats_df = stats_df[stats_df['Stage'].isin(sel_stages)]
     if sel_parents:
         stats_df = stats_df[stats_df['ParentModality'].isin(sel_parents)]
+    
+    # 3. Filter by Sub-Modalities (Platform/Cell Types)
+    if sel_subs:
+        stats_df = stats_df[stats_df['SubModalities'].apply(lambda x: any(s in x for s in sel_subs))]
 
-    # 3. Filter by Search Keywords
+    # 4. Filter by Search Keywords
     if search_term:
         stats_df = stats_df[
             stats_df['PartnerA'].str.contains(search_term, case=False, na=False) |
@@ -270,12 +281,19 @@ try:
     BLUR_LIMIT = 3
     
     if is_authenticated:
-        visible_df = stats_df # Premium users see everything filtered
+        visible_df = stats_df 
     else:
-        visible_df = stats_df.head(GLOBAL_PREVIEW_LIMIT) # Guests see top 5 filtered
+        visible_df = stats_df.head(GLOBAL_PREVIEW_LIMIT)
+
+    # --- DEBUG COUNTER (Helpful for you to see in the sidebar) ---
+    st.sidebar.write(f"📊 Showing {len(stats_df)} matching deals")
 
 except Exception as e:
-    st.error(f"Critical Error in Section 5: {e}")
+    st.sidebar.error(f"Error: {e}")
+    # Fallback to empty dataframes so the rest of the app doesn't crash
+    stats_df = pd.DataFrame()
+    visible_df = pd.DataFrame()
+    is_authenticated = False
 
     # ==========================================
     # 6. DASHBOARD & ANALYTICS (The Hidden Gem)
