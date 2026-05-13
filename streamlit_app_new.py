@@ -190,34 +190,40 @@ def load_and_refine_data():
 # ==========================================
 # 5. UI & AUTHENTICATION
 # ==========================================
-is_authenticated = False
+try:
+    # 5.1 Initialize Data and Sidebar
+    df_master = load_and_refine_data()
+    st.sidebar.title("SerGene Intelligence")
+    
+    # Starting state: Not authenticated
+    is_authenticated = False
 
-with st.sidebar.expander("🔑 Client Access", expanded=True):
-    # This line below is the "get" method:
-    secret_pass = st.secrets.get("access_password") 
-    
-    password_input = st.text_input("Enter Access Code", type="password", placeholder="Enter code...")
-    
-    if password_input:
-        # If secret_pass exists AND matches the input
-        if secret_pass and password_input == secret_pass:
-            is_authenticated = True
-            st.success("Full Access Granted")
-        elif not secret_pass:
-            st.warning("Admin Note: Add 'access_password' to Streamlit Secrets.")
-        else:
-            st.error("Invalid Code")
+    with st.sidebar.expander("🔑 Client Access", expanded=True):
+        # Safely check for the secret without crashing
+        secret_pass = st.secrets.get("access_password")
+        
+        # The Password Input box
+        password_input = st.text_input("Enter Access Code", type="password", placeholder="Enter code...")
+        
+        if password_input:
+            if secret_pass and password_input == secret_pass:
+                is_authenticated = True
+                st.success("Full Access Granted")
+            elif not secret_pass:
+                st.warning("Admin Note: 'access_password' not found in Streamlit Secrets.")
+            else:
+                st.error("Invalid Code")
 
     st.sidebar.divider()
+
+    # 5.2 Sidebar Filters & Limits
     GLOBAL_PREVIEW_LIMIT = 5
     BLUR_LIMIT = 3
 
-    # Sidebar Filters (Always populating from Master)
     date_sel = st.sidebar.date_input("Date Range", value=(df_master['Date'].min(), df_master['Date'].max()))
     sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()))
     sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()))
     
-    # Plural Variable Fix
     all_parents = sorted(df_master['ParentModality'].unique().tolist())
     sel_parents = st.sidebar.multiselect("Broad Modality", all_parents)
     
@@ -226,13 +232,12 @@ with st.sidebar.expander("🔑 Client Access", expanded=True):
     
     search_term = st.sidebar.text_input("🔍 Search Database")
 
-    # 5.1 PRE-FILTERING SCRIPT (The Moat Logic)
+    # 5.3 Filtering Logic (The "Moat")
     if not is_authenticated:
         df_for_rendering = df_master.head(GLOBAL_PREVIEW_LIMIT)
     else:
         df_for_rendering = df_master
 
-    # 5.2 APPLY FILTERS FUNCTION
     def apply_filters(target_df):
         df = target_df.copy()
         if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
@@ -248,9 +253,15 @@ with st.sidebar.expander("🔑 Client Access", expanded=True):
             df = df[df['Insight'].str.contains(search_term, case=False) | df['Title'].str.contains(search_term, case=False)]
         return df
 
-    # Sliced filtered view for cards, full filtered view for stats
     visible_df = apply_filters(df_for_rendering)
     stats_df = apply_filters(df_master)
+
+    # Note: Sections 6 and 7 (Dashboard & Cards) must be indented 
+    # under this 'try' block to work correctly.
+
+# --- THIS IS LINE 402 (Make sure it matches the 'try' at the top) ---
+except Exception as e:
+    st.error(f"BI Module Error: {e}")
 
     # ==========================================
     # 6. DASHBOARD & ANALYTICS (The Hidden Gem)
