@@ -190,24 +190,23 @@ def load_and_refine_data():
 # ==========================================
 # 5. UI & AUTHENTICATION
 # ==========================================
-try:
-    df_master = load_and_refine_data()
-    st.sidebar.title("SerGene Intelligence")
-    
-    with st.sidebar.expander("🔑 Client Access", expanded=True):
-        try:
-            # Pulls ONLY from your secure Streamlit Secrets dashboard
-            MASTER_PASSWORD = st.secrets["access_password"]
-        except Exception:
-            # If the secret is missing, we set it to None so the app doesn't crash, 
-            # but we DON'T provide a hardcoded string here.
-            MASTER_PASSWORD = None
-            st.error("Access Secret not configured.")
+is_authenticated = False
 
-    password_input = st.text_input("Enter Access Code", type="password")
+with st.sidebar.expander("🔑 Client Access", expanded=True):
+    # This line below is the "get" method:
+    secret_pass = st.secrets.get("access_password") 
     
-    # Logic: Only grant access if the secret exists AND matches the input
-    is_authenticated = (MASTER_PASSWORD is not None and password_input == MASTER_PASSWORD)
+    password_input = st.text_input("Enter Access Code", type="password", placeholder="Enter code...")
+    
+    if password_input:
+        # If secret_pass exists AND matches the input
+        if secret_pass and password_input == secret_pass:
+            is_authenticated = True
+            st.success("Full Access Granted")
+        elif not secret_pass:
+            st.warning("Admin Note: Add 'access_password' to Streamlit Secrets.")
+        else:
+            st.error("Invalid Code")
 
     st.sidebar.divider()
     GLOBAL_PREVIEW_LIMIT = 5
