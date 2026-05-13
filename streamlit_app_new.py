@@ -170,6 +170,12 @@ try:
                 st.success("Full Access Granted")
             else:
                 st.error("Invalid Code")
+        # ADD THIS: Show contact info if not logged in
+        if not is_authenticated:
+            st.markdown("---")
+            st.caption("Don't have a code?")
+            st.markdown("📧 **Contact Support:**")
+            st.code("spiros@sergenebio.co.uk")
 
     st.sidebar.divider()
     
@@ -329,6 +335,24 @@ try:
                 summary="Unlock full access to view details.", tags="",
                 value="$$$", r_pct=50, pA="LOCKED", pB="LOCKED"
             ), unsafe_allow_html=True)
+            # 7.3 RESTORED: CTA BANNER
+        mailto_link = "mailto:spiros@sergenebio.co.uk?subject=Portal Access Inquiry"
+        st.markdown(f"""
+            <div class="cta-banner">
+                <h2 style="color: #991b1b; margin-top: 0;">🔒 Unlock Strategic Access</h2>
+                <p style="font-size: 1.1rem; color: #b91c1c; margin-bottom: 1.5rem;">
+                    Analyze the full historical database and generate custom AI Strategic Briefs.
+                </p>
+                <a href="{mailto_link}" 
+                   style="text-decoration: none; color: white; background-color: #ef4444; 
+                   padding: 1rem 2rem; border-radius: 0.75rem; font-weight: 800; font-size: 1.1rem; display: inline-block;">
+                    Request Access Code
+                </a>
+                <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px dashed #fca5a5;">
+                    <p style="font-size: 0.9rem; color: #7f1d1d; margin: 0;">Direct Inquiry: <b>spiros@sergenebio.co.uk</b></p>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
             
 except Exception as e:
     st.error(f"BI Module Error: {e}")
