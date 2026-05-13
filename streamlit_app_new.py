@@ -195,16 +195,19 @@ try:
     st.sidebar.title("SerGene Intelligence")
     
     with st.sidebar.expander("🔑 Client Access", expanded=True):
-        try:
-            MASTER_PASSWORD = st.secrets["access_password"]
-        except:
-            MASTER_PASSWORD = "SerGenePilot2024"
-        password_input = st.text_input("Enter Access Code", type="password")
-        is_authenticated = (password_input == MASTER_PASSWORD)
-        if is_authenticated:
-            st.success("Full Access Granted")
-        elif password_input != "":
-            st.error("Invalid Code")
+    try:
+        # Pulls ONLY from your secure Streamlit Secrets dashboard
+        MASTER_PASSWORD = st.secrets["access_password"]
+    except Exception:
+        # If the secret is missing, we set it to None so the app doesn't crash, 
+        # but we DON'T provide a hardcoded string here.
+        MASTER_PASSWORD = None
+        st.error("Access Secret not configured.")
+
+    password_input = st.text_input("Enter Access Code", type="password")
+    
+    # Logic: Only grant access if the secret exists AND matches the input
+    is_authenticated = (MASTER_PASSWORD is not None and password_input == MASTER_PASSWORD)
 
     st.sidebar.divider()
     GLOBAL_PREVIEW_LIMIT = 5
