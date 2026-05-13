@@ -191,23 +191,21 @@ def load_and_refine_data():
 # 5. UI & AUTHENTICATION
 # ==========================================
 try:
-    # 1. Load the data
+    # 1. Load and Standardize Data
     df_master = load_and_refine_data()
     
-    # 2. Advanced Date Parsing (The "May 13th" Fix)
-    df_master['Date'] = pd.to_datetime(df_master['Date'], dayfirst=True, errors='coerce')
-    df_master = df_master.dropna(subset=['Date']).sort_values('Date', ascending=False)
+    # CRITICAL: Convert all dates to simple 'date' objects so they match the calendar widget
+    df_master['Date_Obj'] = pd.to_datetime(df_master['Date'], dayfirst=True, errors='coerce').dt.date
+    df_master = df_master.dropna(subset=['Date_Obj']).sort_values('Date_Obj', ascending=False)
 
     # --- SIDEBAR UI ---
-    st.sidebar.title("🧬 SerGene Intel")
+    st.sidebar.title("🧬 SerGene Intelligence")
     st.sidebar.markdown("---")
 
-    # A. DATE FILTER (Priority #1 for Iframe Visibility)
+    # A. DATE FILTER (Top position for Iframe visibility)
     st.sidebar.subheader("📅 Select Timeframe")
-    
-    # We use .date() to ensure we are comparing dates to dates, not times
-    min_date = df_master['Date'].min().date()
-    max_date = df_master['Date'].max().date()
+    min_date = df_master['Date_Obj'].min()
+    max_date = df_master['Date_Obj'].max()
     
     date_sel = st.sidebar.date_input(
         "Date Range", 
@@ -218,7 +216,7 @@ try:
 
     st.sidebar.divider()
 
-    # B. CLIENT ACCESS
+    # B. CLIENT ACCESS (Keep closed by default for better UX)
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         try:
             MASTER_PASSWORD = st.secrets["access_password"]
@@ -238,25 +236,29 @@ try:
     # C. ATTRIBUTE FILTERS
     sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()))
     sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()))
-    sel_parents = st.sidebar.multiselect("Broad Modality", sorted(df_master['ParentModality'].unique().tolist()))
     
-    # Re-adding the Sub-Modality filter from your original code
+    all_parents = sorted(df_master['ParentModality'].unique().tolist())
+    sel_parents = st.sidebar.multiselect("Broad Modality", all_parents)
+    
     all_subs = sorted(list(set([t for sub in df_master['SubModalities'] for t in sub])))
     sel_subs = st.sidebar.multiselect("Specific Platforms / Cell Types", all_subs)
     
-    search_term = st.sidebar.text_input("🔍 Search Companies or Insights")
+    search_term = st.sidebar.text_input("🔍 Search Database")
 
-    # --- THE FILTERING ENGINE ---
+    # ==========================================
+    # 5.5 THE FILTERING ENGINE (The Logic Fix)
+    # ==========================================
+    # We filter the WHOLE database first to populate the charts (stats_df)
     stats_df = df_master.copy()
 
-    # 1. Filter by Date (Handling the tuple vs single-click)
+    # 1. Apply Date Filter (comparing date to date)
     if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
         stats_df = stats_df[
-            (stats_df['Date'].dt.date >= date_sel[0]) & 
-            (stats_df['Date'].dt.date <= date_sel[1])
+            (stats_df['Date_Obj'] >= date_sel[0]) & 
+            (stats_df['Date_Obj'] <= date_sel[1])
         ]
 
-    # 2. Filter by Categories
+    # 2. Apply Categorical Filters
     if sel_tas:
         stats_df = stats_df[stats_df['TA'].isin(sel_tas)]
     if sel_stages:
@@ -264,33 +266,33 @@ try:
     if sel_parents:
         stats_df = stats_df[stats_df['ParentModality'].isin(sel_parents)]
     
-    # 3. Filter by Sub-Modalities (Platform/Cell Types)
+    # 3. Apply Sub-Modality Filter
     if sel_subs:
         stats_df = stats_df[stats_df['SubModalities'].apply(lambda x: any(s in x for s in sel_subs))]
 
-    # 4. Filter by Search Keywords
+    # 4. Apply Keyword Search
     if search_term:
         stats_df = stats_df[
             stats_df['PartnerA'].str.contains(search_term, case=False, na=False) |
             stats_df['PartnerB'].str.contains(search_term, case=False, na=False) |
-            stats_df['Insight'].str.contains(search_term, case=False, na=False)
+            stats_df['Insight'].str.contains(search_term, case=False, na=False) |
+            stats_df['Title'].str.contains(search_term, case=False, na=False)
         ]
 
-    # --- THE "MOAT" LOGIC ---
+    # --- THE MOAT LOGIC (Slicing comes LAST) ---
     GLOBAL_PREVIEW_LIMIT = 5
     BLUR_LIMIT = 3
     
     if is_authenticated:
+        # Full filtered results for clients
         visible_df = stats_df 
     else:
+        # Filtered results cut to 5 for guests
         visible_df = stats_df.head(GLOBAL_PREVIEW_LIMIT)
 
-    # --- DEBUG COUNTER (Helpful for you to see in the sidebar) ---
-    st.sidebar.write(f"📊 Showing {len(stats_df)} matching deals")
-
 except Exception as e:
-    st.sidebar.error(f"Error: {e}")
-    # Fallback to empty dataframes so the rest of the app doesn't crash
+    st.error(f"Logic Error in Section 5: {e}")
+    # Safety fallbacks to prevent crashes in the following sections
     stats_df = pd.DataFrame()
     visible_df = pd.DataFrame()
     is_authenticated = False
