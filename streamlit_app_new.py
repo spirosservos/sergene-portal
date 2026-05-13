@@ -195,14 +195,14 @@ try:
     st.sidebar.title("SerGene Intelligence")
     
     with st.sidebar.expander("🔑 Client Access", expanded=True):
-    try:
-        # Pulls ONLY from your secure Streamlit Secrets dashboard
-        MASTER_PASSWORD = st.secrets["access_password"]
-    except Exception:
-        # If the secret is missing, we set it to None so the app doesn't crash, 
-        # but we DON'T provide a hardcoded string here.
-        MASTER_PASSWORD = None
-        st.error("Access Secret not configured.")
+        try:
+            # Pulls ONLY from your secure Streamlit Secrets dashboard
+            MASTER_PASSWORD = st.secrets["access_password"]
+        except Exception:
+            # If the secret is missing, we set it to None so the app doesn't crash, 
+            # but we DON'T provide a hardcoded string here.
+            MASTER_PASSWORD = None
+            st.error("Access Secret not configured.")
 
     password_input = st.text_input("Enter Access Code", type="password")
     
