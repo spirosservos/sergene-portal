@@ -173,14 +173,23 @@ try:
 
     st.sidebar.divider()
     
-    # Filters
+    # 5.1 Restored Sidebar Filters
     date_sel = st.sidebar.date_input("Date Range", value=(df_master['Date'].min(), df_master['Date'].max()))
     sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()))
     sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()))
-    sel_parents = st.sidebar.multiselect("Broad Modality", sorted(df_master['ParentModality'].unique().tolist()))
+    
+    # Broad Category
+    all_parents = sorted(df_master['ParentModality'].unique().tolist())
+    sel_parents = st.sidebar.multiselect("Broad Modality", all_parents)
+    
+    # RESTORED: Specific Sub-Modalities / Cell Types
+    # This gathers every unique tag across all deals into one list for the menu
+    all_subs = sorted(list(set([t for sub in df_master['SubModalities'] for t in sub])))
+    sel_subs = st.sidebar.multiselect("Specific Platforms / Cell Types", all_subs)
+    
     search_term = st.sidebar.text_input("🔍 Search Database")
 
-    # Limits
+    # 5.2 Restored Filtering Logic
     GLOBAL_PREVIEW_LIMIT = 5
     BLUR_LIMIT = 3
 
@@ -191,14 +200,25 @@ try:
 
     def apply_filters(target_df):
         df = target_df.copy()
+        # Date Filter
         if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
             sd, ed = date_sel
             df = df[(df['Date'].dt.date >= sd) & (df['Date'].dt.date <= ed)]
+        
+        # Standard Dropdown Filters
         if sel_tas: df = df[df['TA'].isin(sel_tas)]
         if sel_stages: df = df[df['Stage'].isin(sel_stages)]
         if sel_parents: df = df[df['ParentModality'].isin(sel_parents)]
+        
+        # RESTORED: Sub-Modality List Logic
+        # This checks if any of the selected tags exist inside the deal's tag list
+        if sel_subs:
+            df = df[df['SubModalities'].apply(lambda x: any(s in x for s in sel_subs))]
+            
+        # Search Box
         if search_term:
-            df = df[df['Insight'].str.contains(search_term, case=False) | df['Title'].str.contains(search_term, case=False)]
+            df = df[df['Insight'].str.contains(search_term, case=False) | 
+                    df['Title'].str.contains(search_term, case=False)]
         return df
 
     visible_df = apply_filters(df_for_rendering)
