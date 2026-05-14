@@ -160,6 +160,12 @@ def load_and_refine_data():
 # ==========================================
 try:
     df_master = load_and_refine_data()
+    
+    # 1. CRITICAL: Force Date_Obj to be actual date objects and remove any "float" nulls
+    df_master['Date_Obj'] = pd.to_datetime(df_master['Date'], dayfirst=True, errors='coerce').dt.date
+    df_master = df_master[df_master['Date_Obj'].notnull()]
+    df_master = df_master.sort_values(by='Date_Obj', ascending=False)
+
     st.sidebar.title("🧬 SerGene Intelligence")
     
     # A. DATE FILTER (Top position for Iframe visibility)
@@ -176,7 +182,7 @@ try:
 
     st.sidebar.divider()
 
-    # B. CLIENT ACCESS (Keep closed to save space)
+    # B. CLIENT ACCESS
     is_authenticated = False
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         secret_pass = st.secrets.get("access_password")
@@ -204,12 +210,17 @@ try:
     
     search_term = st.sidebar.text_input("🔍 Search Database")
 
-    # --- 5.5 FILTERING LOGIC (The Logic Fix) ---
-    # We filter the ENTIRE database first to populate stats_df
+    # --- 5.5 FILTERING ENGINE (The "Bulletproof" Fix) ---
     stats_df = df_master.copy()
 
+    # We ensure date_sel is a valid tuple and stats_df has no invalid dates
     if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
-        stats_df = stats_df[(stats_df['Date_Obj'] >= date_sel[0]) & (stats_df['Date_Obj'] <= date_sel[1])]
+        start_date, end_date = date_sel
+        # We force the comparison to only happen on rows that aren't null
+        stats_df = stats_df[
+            (stats_df['Date_Obj'] >= start_date) & 
+            (stats_df['Date_Obj'] <= end_date)
+        ]
     
     if sel_tas: stats_df = stats_df[stats_df['TA'].isin(sel_tas)]
     if sel_stages: stats_df = stats_df[stats_df['Stage'].isin(sel_stages)]
@@ -218,8 +229,8 @@ try:
         stats_df = stats_df[stats_df['SubModalities'].apply(lambda x: any(s in x for s in sel_subs))]
     if search_term:
         stats_df = stats_df[
-            stats_df['Insight'].str.contains(search_term, case=False) | 
-            stats_df['Title'].str.contains(search_term, case=False)
+            stats_df['Insight'].str.contains(search_term, case=False, na=False) | 
+            stats_df['Title'].str.contains(search_term, case=False, na=False)
         ]
 
     # Handle the "Moat" (Preview limit)
@@ -229,6 +240,13 @@ try:
         visible_df = stats_df
     else:
         visible_df = stats_df.head(GLOBAL_PREVIEW_LIMIT)
+
+except Exception as e:
+    st.error(f"BI Module Error: {e}")
+    # Fallback to prevent the rest of the app from crashing
+    stats_df = pd.DataFrame()
+    visible_df = pd.DataFrame()
+    is_authenticated = False
 
     # ==========================================
     # 6. DASHBOARD
