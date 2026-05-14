@@ -159,25 +159,34 @@ def load_and_refine_data():
 # 5. UI, AUTHENTICATION & FILTERING
 # ==========================================
 try:
+    # 1. Load Data
     df_master = load_and_refine_data()
     
-    # 1. CRITICAL: Force Date_Obj to be actual date objects and remove any "float" nulls
-    df_master['Date_Obj'] = pd.to_datetime(df_master['Date'], dayfirst=True, errors='coerce').dt.date
-    df_master = df_master[df_master['Date_Obj'].notnull()]
-    df_master = df_master.sort_values(by='Date_Obj', ascending=False)
+    if df_master.empty:
+        st.error("Database is empty or could not be loaded.")
+        st.stop()
+
+    # 2. Standardize Date Objects
+    # We ensure they are dates, not timestamps, for the calendar widget
+    df_master['Date_Obj'] = pd.to_datetime(df_master['Date'], errors='coerce').dt.date
+    df_master = df_master.dropna(subset=['Date_Obj']).sort_values('Date_Obj', ascending=False)
 
     st.sidebar.title("🧬 SerGene Intelligence")
     
-    # A. DATE FILTER (Top position for Iframe visibility)
+    # A. DATE FILTER 
     st.sidebar.subheader("📅 Select Timeframe")
     min_db_date = df_master['Date_Obj'].min()
     max_db_date = df_master['Date_Obj'].max()
+    
+    # FIX: We set max_value to the LATEST of today OR the data's max date
+    # This prevents the "must lie between" crash if your data has future dates
+    absolute_max = max(max_db_date, datetime.now().date())
     
     date_sel = st.sidebar.date_input(
         "Date Range", 
         value=(min_db_date, max_db_date),
         min_value=min_db_date,
-        max_value=datetime.now().date()
+        max_value=absolute_max
     )
 
     st.sidebar.divider()
@@ -193,10 +202,6 @@ try:
                 st.success("Full Access Granted")
             else:
                 st.error("Invalid Code")
-        if not is_authenticated:
-            st.markdown("---")
-            st.caption("Request Access:")
-            st.code("spiros@sergenebio.co.uk")
 
     st.sidebar.divider()
     
@@ -210,16 +215,13 @@ try:
     
     search_term = st.sidebar.text_input("🔍 Search Database")
 
-    # --- 5.5 FILTERING ENGINE (The "Bulletproof" Fix) ---
+    # --- 5.5 FILTERING ENGINE ---
     stats_df = df_master.copy()
 
-    # We ensure date_sel is a valid tuple and stats_df has no invalid dates
     if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
-        start_date, end_date = date_sel
-        # We force the comparison to only happen on rows that aren't null
         stats_df = stats_df[
-            (stats_df['Date_Obj'] >= start_date) & 
-            (stats_df['Date_Obj'] <= end_date)
+            (stats_df['Date_Obj'] >= date_sel[0]) & 
+            (stats_df['Date_Obj'] <= date_sel[1])
         ]
     
     if sel_tas: stats_df = stats_df[stats_df['TA'].isin(sel_tas)]
@@ -242,11 +244,10 @@ try:
         visible_df = stats_df.head(GLOBAL_PREVIEW_LIMIT)
 
 except Exception as e:
-    st.error(f"BI Module Error: {e}")
-    # Fallback to prevent the rest of the app from crashing
-    stats_df = pd.DataFrame()
-    visible_df = pd.DataFrame()
-    is_authenticated = False
+    # If a real error happens, we show exactly where it is
+    st.sidebar.error(f"Configuration Error: {e}")
+    # We do NOT set stats_df to empty here, to avoid the KeyError later
+    st.stop()
 
     # ==========================================
     # 6. DASHBOARD
