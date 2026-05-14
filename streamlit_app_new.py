@@ -105,7 +105,6 @@ def load_and_refine_data():
         raw_tags = row.get('ModalityTags', [])
         tags = [re.sub(r'([a-z])([A-Z])', r'\1 \2', str(t)).strip() for t in raw_tags] if isinstance(raw_tags, (list, np.ndarray)) else []
         
-        # Specific Cell Type Logic
         for col_name in row.index:
             val = row[col_name]
             col_l = str(col_name).lower()
@@ -122,7 +121,6 @@ def load_and_refine_data():
 
         tags = list(set([t for t in tags if t and str(t).lower() != 'nan']))
         
-        # Parent Modality Assignment
         parent = "Other"
         norm_tags = [t.lower() for t in tags]
         for group_name, keywords in MODALITY_GROUPS.items():
@@ -159,19 +157,15 @@ def load_and_refine_data():
 # ==========================================
 try:
     df_master = load_and_refine_data()
-    
-    # 1. Standardize Dates
     df_master = df_master.dropna(subset=['Date_Obj']).sort_values('Date_Obj', ascending=False)
 
     st.sidebar.title("🧬 SerGene Intel")
     st.sidebar.markdown("---")
 
-    # A. DATE FILTER (Priority #1)
+    # A. DATE FILTER (Top position for Iframe)
     st.sidebar.subheader("📅 Timeframe")
     min_date = df_master['Date_Obj'].min()
     max_date = df_master['Date_Obj'].max()
-    
-    # Robust max date fix
     absolute_max = max(max_date, datetime.now().date())
     
     date_sel = st.sidebar.date_input(
@@ -183,7 +177,7 @@ try:
 
     st.sidebar.divider()
 
-    # B. CLIENT ACCESS
+    # B. CLIENT ACCESS (Restored contact details)
     is_authenticated = False
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         secret_pass = st.secrets.get("access_password")
@@ -194,6 +188,12 @@ try:
                 st.success("Full Access Granted")
             else:
                 st.error("Invalid Code")
+        
+        if not is_authenticated:
+            st.markdown("---")
+            st.caption("Don't have a code?")
+            st.markdown("📧 **Contact Support:**")
+            st.code("spiros@sergenebio.co.uk")
 
     st.sidebar.divider()
 
@@ -207,7 +207,7 @@ try:
     
     search_term = st.sidebar.text_input("🔍 Search Database")
 
-    # --- THE FILTERING ENGINE (FILTER ENTIRE DB FIRST) ---
+    # --- FILTERING LOGIC ---
     stats_df = df_master.copy()
 
     if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
@@ -225,7 +225,6 @@ try:
             stats_df['Insight'].str.contains(search_term, case=False, na=False)
         ]
 
-    # --- THE MOAT (SLICE LAST) ---
     GLOBAL_PREVIEW_LIMIT = 5
     BLUR_LIMIT = 3
     if is_authenticated:
@@ -278,7 +277,7 @@ try:
             st.warning("🔒 Client Access Required.")
 
     # ==========================================
-    # 7. DEAL CARDS
+    # 7. DEAL CARDS (With Ratio Label)
     # ==========================================
     CARD_HTML = """
     <div class="deal-card {extra_class}">
@@ -316,8 +315,34 @@ try:
                 value=row['DisplayValue'], r_pct=r_val, pA=row['PartnerA'], pB=row['PartnerB']
             ), unsafe_allow_html=True)
 
-    if not is_authenticated and len(stats_df) > GLOBAL_PREVIEW_LIMIT:
-        st.markdown('<div class="cta-banner">🔒 Unlock full access to view all historical deals.</div>', unsafe_allow_html=True)
+    # --- RESTORED: FULL CTA BANNER ---
+    if not is_authenticated:
+        # Show Blurred cards
+        for _, row in stats_df.iloc[GLOBAL_PREVIEW_LIMIT : GLOBAL_PREVIEW_LIMIT + BLUR_LIMIT].iterrows():
+            st.markdown(CARD_HTML.format(
+                extra_class="blurred-card", d_date=row['DisplayDate'], ta=row['TA'], stage=row['Stage'],
+                p_mod=row['ParentModality'], link="#", insight="LOCKED", title="LOCKED",
+                summary="Unlock full access to view details.", tags="",
+                value="$$$", r_pct=0, pA="LOCKED", pB="LOCKED"
+            ), unsafe_allow_html=True)
+            
+        mailto_link = "mailto:spiros@sergenebio.co.uk?subject=Portal Access Inquiry"
+        st.markdown(f"""
+            <div class="cta-banner">
+                <h2 style="color: #991b1b; margin-top: 0;">🔒 Unlock Strategic Access</h2>
+                <p style="font-size: 1.1rem; color: #b91c1c; margin-bottom: 1.5rem;">
+                    Analyze the full historical database and generate custom AI Strategic Briefs.
+                </p>
+                <a href="{mailto_link}" 
+                   style="text-decoration: none; color: white; background-color: #ef4444; 
+                   padding: 1rem 2rem; border-radius: 0.75rem; font-weight: 800; font-size: 1.1rem; display: inline-block;">
+                    Request Access Code
+                </a>
+                <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px dashed #fca5a5;">
+                    <p style="font-size: 0.9rem; color: #7f1d1d; margin: 0;">Direct Inquiry: <b>spiros@sergenebio.co.uk</b></p>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
             
 except Exception as e:
     st.error(f"BI Module Error: {e}")
