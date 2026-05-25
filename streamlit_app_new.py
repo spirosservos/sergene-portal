@@ -4,8 +4,10 @@ import numpy as np
 import html
 import re
 import os
+import textwrap  # Integrated to break long analytical insights into multi-line tooltips
 from datetime import datetime
 from google import genai 
+import plotly.express as px  
 
 # ==========================================
 # 1. PAGE CONFIG & AI INITIALIZATION
@@ -24,13 +26,38 @@ if GENAI_KEY:
 else:
     st.error("AI Configuration Error: Gemini API Key not found.")
 
+# Reconfigured Modality Classes aligned to strategic hierarchy
 MODALITY_GROUPS = {
+    "Gene Therapy/Editing": ["CRISPR", "Base Editing", "Prime Editing", "Gene Editing", "Gene Therapy", "AAV", "Lentivirus", "Lenti", "Alternative & General Vectors"],
     "Cell Therapy": ["CAR-T", "TCR", "TILs", "NK Cells", "Tregs", "MSCs", "iPSCs", "gamma delta T cells", "γδ T cells", "Cell Therapy"],
-    "Gene Therapy/Editing": ["CRISPR", "Base Editing", "Prime Editing", "Gene Editing", "Gene Therapy"],
-    "RNA Therapeutics": ["mRNA", "siRNA", "RNAi", "miRNA", "ASO", "Antisense", "Aptamer", "RNA"],
-    "Biologics": ["Antibody", "Bispecific", "ADC", "Multi-specific", "Peptide", "Biologics"],
+    "RNA Therapeutics": ["mRNA", "siRNA", "RNAi", "miRNA", "ASO", "Antisense", "Aptamer", "RNA", "ASO / Antisense"],
+    "Immunotherapies": ["Oncolytic Virus", "Immuno-oncology"],
+    "Biologics": ["Antibody", "Bispecific", "ADC", "Multi-specific", "Peptide", "Biologics", "Exosomes"],
     "Small Molecule": ["Small Molecule", "Protein Degrader", "Oral"]
 }
+
+# Strict filter to classify cell types versus engineering/delivery platforms
+CELL_THERAPY_TAGS = ["CAR-T", "TCR", "TILs", "NK Cells", "Tregs", "MSCs", "iPSCs", "gamma delta T cells", "γδ T cells", "Cell Therapy"]
+
+# Strict explicit ordering arrays for filters to avoid random alphabetical sorting
+MODALITY_ORDER = [
+    "Gene Therapy/Editing",
+    "Cell Therapy",
+    "RNA Therapeutics",
+    "Immunotherapies",
+    "Biologics",
+    "Small Molecule",
+    "Emerging Platforms & Conjugates"
+]
+
+PLATFORM_ORDER = [
+    'CRISPR', 'Gene Editing', 'Base Editing', 'Prime Editing', 'Gene Therapy', 'AAV', 'Lentivirus', 'Lenti', 'Alternative & General Vectors',
+    'RNA', 'mRNA', 'siRNA', 'RNAi', 'miRNA', 'ASO / Antisense', 'Aptamer',
+    'Oncolytic Virus', 'Immuno-oncology',
+    'Biologics', 'Antibody', 'Bispecific', 'Multi-specific', 'ADC', 'Peptide', 'Exosomes',
+    'Small Molecule', 'Protein Degrader', 'Oral',
+    'LNP', 'Nanoparticle', 'Radiopharmaceutical', 'GLP-1', 'Incretin'
+]
 
 # ==========================================
 # 2. UTILITY FUNCTIONS
@@ -100,29 +127,58 @@ def load_and_refine_data():
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         df = df.sort_values(by='Date', ascending=False)
     
+    # Strict whitelist to isolate scientific modalities and prevent data leakage
+    TECH_COLUMNS = [
+        'Small Molecule', 'Biologics', 'Protein Degrader', 'Peptide', 'GLP-1', 'Incretin', 
+        'RNA', 'mRNA', 'siRNA', 'RNAi', 'miRNA', 'ASO', 'Antisense', 'Aptamer', 
+        'CRISPR', 'Gene Therapy', 'Gene Editing', 'Base Editing', 'Prime Editing', 
+        'AAV', 'Lentivirus', 'Lenti', 'Oncolytic Virus', 'Vector', 'Tregs', 'TCR', 
+        'CAR-T', 'Cell Therapy', 'NK Cells', 'TILs', 'ADC', 'Antibody', 'Bispecific', 
+        'Exosomes', 'LNP', 'Oral', 'Radiopharmaceutical', 'Immuno-oncology', 
+        'Multi-specific', 'Nanoparticle', 'MSCs', 'iPSCs', 'gamma delta T cells', 'γδ T cells'
+    ]
+    
     refined_rows = []
     for _, row in df.iterrows():
-        # A. Tag Processing
-        raw_tags = row.get('ModalityTags', [])
-        tags = [str(t).strip() for t in raw_tags] if isinstance(raw_tags, (list, np.ndarray)) else []
-        
-        # Capture headers from R:CP where deal has value
+        # First pass: gather all raw tags detected on this row
+        raw_row_flags = []
         for col_name in row.index:
-            val = row[col_name]
-            col_l = str(col_name).lower()
-            try:
-                if float(val) > 0:
-                    if "msc" in col_l: tags.append("MSCs")
-                    elif "ipsc" in col_l: tags.append("iPSCs")
-                    elif any(x in col_l for x in ["gamma", "delta", "γ", "δ"]): tags.append("γδ T cells")
-                    else: tags.append(str(col_name))
-            except:
-                if str(val).lower() in ['yes', 'y', 'true', '1']: tags.append(str(col_name))
+            if col_name in TECH_COLUMNS:
+                val = row[col_name]
+                try:
+                    if float(val) > 0:
+                        raw_row_flags.append(col_name)
+                except:
+                    if str(val).lower() in ['yes', 'y', 'true', '1']:
+                        raw_row_flags.append(col_name)
+
+        # Second pass: Apply exclusivity rules to eliminate overlapping redundancies
+        tags = []
+        has_specific_viral = any(x in raw_row_flags for x in ['AAV', 'Lentivirus', 'Lenti'])
+
+        for flag in raw_row_flags:
+            if flag == 'Vector':
+                if not has_specific_viral:
+                    tags.append("Alternative & General Vectors")
+            elif flag in ['ASO', 'Antisense']:
+                tags.append("ASO / Antisense")
+            elif "msc" in flag.lower():
+                tags.append("MSCs")
+            elif "ipsc" in flag.lower():
+                tags.append("iPSCs")
+            elif any(x in flag.lower() for x in ["gamma", "delta", "γ", "δ"]):
+                tags.append("γδ T cells")
+            else:
+                tags.append(flag)
 
         tags = list(set([t for t in tags if t and str(t).lower() != 'nan']))
         
-        # B. Modality Groups
-        parent = "Other"
+        # Split tags cleanly between Cell Types and Engineering/Delivery Platforms
+        cell_types_extracted = [t for t in tags if t in CELL_THERAPY_TAGS]
+        platforms_extracted = [t for t in tags if t not in CELL_THERAPY_TAGS]
+        
+        # B. Modality Groups Mapping
+        parent = "Emerging Platforms & Conjugates"  
         norm_tags = [t.lower() for t in tags]
         for group_name, keywords in MODALITY_GROUPS.items():
             if any(k.lower() in norm_tags for k in keywords):
@@ -133,8 +189,7 @@ def load_and_refine_data():
         up_m = parse_currency(row.get('Upfront', ''))
         ratio = (up_m / val_m) if val_m > 0 else 0.0
 
-        # C. THE AMBIGUITY-PROOF SEARCH BLOB
-        # We manually check for lists to avoid the "Ambiguous Truth Value" error
+        # C. Search Blob Creation
         row_values = []
         for val in row.values:
             if isinstance(val, (list, np.ndarray)):
@@ -146,11 +201,14 @@ def load_and_refine_data():
         blob = " ".join(blob.split())
 
         refined_rows.append({
+            'Row_ID': row.name, 
             'Date': row.get('Date'),
             'Date_Obj': row.get('Date').date() if pd.notnull(row.get('Date')) else None,
             'DisplayDate': row.get('Date').strftime('%b %d, %Y') if pd.notnull(row.get('Date')) else "N/A",
             'ParentModality': parent,
             'SubModalities': tags,
+            'CellTypes': cell_types_extracted,
+            'Platforms': platforms_extracted,
             'TA': str(row.get('TA', 'Other/General')).strip(),
             'TargetDisease': str(row.get('Target Disease', row.get('TargetDisease', 'N/A'))),
             'Stage': str(row.get('Stage', 'Pre-clinical')).strip(),
@@ -177,7 +235,7 @@ try:
     st.sidebar.title("🧬 SerGene Intelligence")
     st.sidebar.markdown("---")
 
-    # A. DATE FILTER
+    # 1. Select Timeframe & Date Range
     st.sidebar.subheader("📅 Select Timeframe")
     min_db = df_master['Date_Obj'].min()
     max_db = df_master['Date_Obj'].max()
@@ -185,7 +243,7 @@ try:
 
     st.sidebar.divider()
 
-    # B. CLIENT ACCESS
+    # 2. Client Access
     is_authenticated = False
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         secret_pass = st.secrets.get("access_password")
@@ -200,27 +258,42 @@ try:
 
     st.sidebar.divider()
 
-    # C. ATTRIBUTE FILTERS (Restored all dropdowns)
+    # 3. Modality Class
+    existing_parents = df_master['ParentModality'].unique().tolist()
+    sorted_parents_options = [m for m in MODALITY_ORDER if m in existing_parents] + [m for m in existing_parents if m not in MODALITY_ORDER]
+    sel_parents = st.sidebar.multiselect("Modality Class", sorted_parents_options)
+    
+    # 4. Platforms & Delivery Dropdown
+    all_platforms = list(set([p for sub in df_master['Platforms'] for p in sub]))
+    sorted_platform_options = [p for p in PLATFORM_ORDER if p in all_platforms] + [p for p in all_platforms if p not in PLATFORM_ORDER]
+    sel_platforms = st.sidebar.multiselect("Platforms & Delivery", sorted_platform_options)
+
+    # 5. Cell Types Dropdown
+    all_cells = sorted(list(set([c for sub in df_master['CellTypes'] for c in sub])))
+    sel_cells = st.sidebar.multiselect("Cell Types", all_cells)
+
+    # 6. Therapeutic Area
     sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()))
+
+    # 7. Development Stage
     sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()))
-    sel_parents = st.sidebar.multiselect("Broad Modality", sorted(df_master['ParentModality'].unique().tolist()))
     
-    all_subs = sorted(list(set([t for sub in df_master['SubModalities'] for t in sub])))
-    sel_subs = st.sidebar.multiselect("Specific Platforms / Cell Types", all_subs)
-    
+    # 8. Search Everything (Deep Scan)
     search_term = st.sidebar.text_input("🔍 Search Everything (Deep Scan)")
 
-    # --- FILTERING ENGINE (Using len checks for safety) ---
+    # --- FILTERING ENGINE ---
     stats_df = df_master.copy()
 
     if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
         stats_df = stats_df[(stats_df['Date_Obj'] >= date_sel[0]) & (stats_df['Date_Obj'] <= date_sel[1])]
     
+    if len(sel_parents) > 0: stats_df = stats_df[stats_df['ParentModality'].isin(sel_parents)]
+    if len(sel_platforms) > 0:
+        stats_df = stats_df[stats_df['Platforms'].apply(lambda x: any(s in x for s in sel_platforms))]
+    if len(sel_cells) > 0:
+        stats_df = stats_df[stats_df['CellTypes'].apply(lambda x: any(s in x for s in sel_cells))]
     if len(sel_tas) > 0: stats_df = stats_df[stats_df['TA'].isin(sel_tas)]
     if len(sel_stages) > 0: stats_df = stats_df[stats_df['Stage'].isin(sel_stages)]
-    if len(sel_parents) > 0: stats_df = stats_df[stats_df['ParentModality'].isin(sel_parents)]
-    if len(sel_subs) > 0:
-        stats_df = stats_df[stats_df['SubModalities'].apply(lambda x: any(s in x for s in sel_subs))]
     
     if search_term:
         stats_df = stats_df[stats_df['SearchBlob'].str.contains(search_term.lower(), na=False)]
@@ -234,13 +307,151 @@ try:
     # ==========================================
     st.title("Strategic Deal Intelligence Stream")
     
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Database Depth", len(stats_df))
-    m2.metric("Market Volume Analysed", f"${stats_df['TotalValueM'].sum()/1000:.1f}B")
+    # Process and calculate unique companies based on first word extraction
+    partners_combined = pd.concat([stats_df['PartnerA'], stats_df['PartnerB']]).dropna()
+    excluded_placeholders = ['n/a', 'nan', '', 'locked', 'unknown']
+    partners_combined = partners_combined[~partners_combined.astype(str).str.lower().isin(excluded_placeholders)]
+    
+    company_first_words = partners_combined.astype(str).apply(lambda x: x.split()[0].lower() if len(x.split()) > 0 else '')
+    unique_companies_count = company_first_words[company_first_words != ''].nunique()
+    
+    # 4-Column Layout
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Database Depth", f"{len(stats_df)} Deals")
+    m2.metric("Companies Tracked", f"{unique_companies_count} Unique")
+    m3.metric("Market Volume Analysed", f"${stats_df['TotalValueM'].sum()/1000:.1f}B")
     
     valid_r = stats_df[stats_df['UpfrontRatio'] > 0]['UpfrontRatio']
     avg_r = valid_r.mean() if not valid_r.empty else 0
-    m3.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
+    m4.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
+
+    st.divider()
+
+    # ==========================================
+    # 6.2 CHRONOLOGICAL NEWS GRAPHIC (Pristine Text Wrapping & Legend Position Fix)
+    # ==========================================
+    lookback_days = 30 if is_authenticated else 7
+    label_text = "Month" if is_authenticated else "Week"
+    
+    if not stats_df.empty:
+        latest_stream_date = stats_df['Date_Obj'].max()
+        cutoff_date = latest_stream_date - pd.Timedelta(days=lookback_days)
+        
+        timeline_df = stats_df[stats_df['Date_Obj'] >= cutoff_date].copy()
+        
+        if not timeline_df.empty:
+            timeline_df = timeline_df.sort_values('Date_Obj', ascending=True)
+            timeline_df['stack_y'] = timeline_df.groupby('Date_Obj').cumcount() + 1
+            
+            # Formulate categorical matching lists to freeze colors tightly to legend items
+            current_available_order = [o for o in MODALITY_ORDER if o in timeline_df['ParentModality'].unique()]
+            timeline_df['ParentModality'] = pd.Categorical(timeline_df['ParentModality'], categories=current_available_order, ordered=True)
+            timeline_df = timeline_df.sort_values(['Date_Obj', 'ParentModality'])
+
+            hover_meta_list = []
+            visible_row_ids = visible_df['Row_ID'].values if 'Row_ID' in visible_df.columns else []
+            
+            for _, r in timeline_df.iterrows():
+                if not is_authenticated and r['Row_ID'] not in visible_row_ids:
+                    text_html = (
+                        "<span style='font-size:16px; font-family:Arial, sans-serif; color:#64748b; padding:10px;'>"
+                        "<b>📅 DATE:</b> %{x}<br><br>"
+                        "<b style='color:#ef4444;'>🔒 STATUS: Premium Client Account Required</b><br>"
+                        "Activate your access code to unlock real-time dashboard analytics.</span>"
+                    )
+                else:
+                    # Inject automated line breaking rules directly to long analysis fields
+                    raw_insight = r['Insight'] if r['Insight'] else ""
+                    wrapped_insight = "<br>".join(textwrap.wrap(html.escape(raw_insight), width=70))
+                    
+                    text_html = (
+                        f"<span style='font-size:15px; font-family:Arial, sans-serif; line-height:1.6; color:#0f172a;'>"
+                        f"<b style='color:#2563eb;'>📅 DATE:</b> {r['DisplayDate']}<br>"
+                        f"<b style='color:#059669;'>🤝 PARTNERS:</b> {html.escape(r['PartnerA'])} & {html.escape(r['PartnerB'])}<br>"
+                        f"<b style='color:#d97706;'>💰 VALUE:</b> {html.escape(r['DisplayValue'])}<br>"
+                        f"<b style='color:#7c3aed;'>🧬 CLASS:</b> {html.escape(r['ParentModality'])}<br>"
+                        f"<b style='color:#0284c7;'>🎯 TARGET:</b> {html.escape(r['TargetDisease'])}<br><br>"
+                        f"<b style='color:#dc2626;'>💡 STRATEGIC INSIGHT:</b><br>"
+                        f"<i style='color:#334155;'>{wrapped_insight}</i>"
+                        f"</span>"
+                    )
+                hover_meta_list.append(text_html)
+                
+            timeline_df['HoverHTML'] = hover_meta_list
+            
+            # Secure execution mapping by directly embedding the string inside px.scatter custom_data
+            fig_timeline = px.scatter(
+                timeline_df,
+                x='Date_Obj',
+                y='stack_y',
+                color='ParentModality',
+                custom_data=['HoverHTML'], 
+                color_discrete_map={
+                    "Gene Therapy/Editing": "#3b82f6",                     # Vibrant Blue
+                    "Cell Therapy": "#10b981",                             # Emerald Green
+                    "RNA Therapeutics": "#6366f1",                         # Indigo
+                    "Immunotherapies": "#ec4899",                          # Pink
+                    "Biologics": "#f59e0b",                                # Amber
+                    "Small Molecule": "#b91c1c",                           # Deep Crimson/Red (Shifted from teal for distinct isolation)
+                    "Emerging Platforms & Conjugates": "#64748b"            # Slate Grey
+                },
+                category_orders={"ParentModality": MODALITY_ORDER}
+            )
+            
+            # Custom tokens mapping avoids mixing labels. <extra></extra> hides trace text boxes
+            fig_timeline.update_traces(
+                marker=dict(size=18, opacity=0.85, line=dict(width=1.5, color='#ffffff')),
+                hovertemplate="%{customdata[0]}<extra></extra>" 
+            )
+            
+            fig_timeline.update_layout(
+                title=dict(
+                    text=f"🧬 Latest Deal Intelligence Timeline (Last {label_text} of Activity)",
+                    font=dict(size=16, color='#1e293b', weight='bold')
+                ),
+                plot_bgcolor='#ffffff',
+                paper_bgcolor='rgba(0,0,0,0)',
+                
+                # SENSITIVITY TWEAKS: Triggers popup ONLY when cursor is positioned directly on top of the bullet
+                hovermode='closest',
+                hoverdistance=3, 
+                
+                hoverlabel=dict(
+                    bgcolor="#ffffff",
+                    bordercolor="#e2e8f0"
+                ),
+                xaxis=dict(
+                    title=None,
+                    showgrid=True,
+                    gridcolor='#f1f5f9',
+                    tickfont=dict(color='#64748b', size=12),
+                    type='date'
+                ),
+                yaxis=dict(
+                    visible=False, # Hides structural scale identifiers entirely to clear faint background artifacts
+                    showgrid=False,
+                    zeroline=False,
+                    showticklabels=False
+                ),
+                
+                # BULLETPROOF POSITIONING: Shifts horizontal indicator legend to bottom map boundaries to prevent clipping cutoffs
+                legend=dict(
+                    title=dict(text="Modality Class", font=dict(size=12, weight='bold')),
+                    orientation="h",
+                    yanchor="top",
+                    y=-0.18,
+                    xanchor="center",
+                    x=0.5
+                ),
+                margin=dict(l=10, r=10, t=50, b=80), # Expanded bottom tracking boundaries to absorb layout footprint smoothly
+                height=320 # Stepped height up from 260 to give plot components ample workspace area breathing room
+            )
+            
+            st.plotly_chart(fig_timeline, use_container_width=True)
+        else:
+            st.info(f"No transactions recorded during the immediate 1-{label_text} timeframe window.")
+    else:
+        st.info("No transaction coordinates available to map trend visualizations.")
 
     st.divider()
 
@@ -256,7 +467,7 @@ try:
             st.markdown("### **Development Stage**")
             st.bar_chart(stats_df['Stage'].value_counts(), color="#6366f1")
 
-    # AI Section (Toggle & Full Prompt Restored)
+    # AI Section
     st.write("") 
     if is_authenticated:
         ai_ready = st.toggle("Enable AI Strategic Analysis Tool", value=False)
@@ -281,7 +492,60 @@ try:
         st.warning("🔒 AI Strategic Analysis is a Premium Feature for Clients.")
 
     # ==========================================
-    # 7. DEAL CARDS (Visible Label & Target Restored)
+    # 6.5 EXPORT INTELLIGENCE STREAM
+    # ==========================================
+    st.write("")
+    st.subheader("📥 Export Intelligence Stream")
+    download_limit = 20 if is_authenticated else 5
+    
+    if not stats_df.empty:
+        target_records = stats_df.head(download_limit)
+        
+        export_data = {
+            'Date': target_records['DisplayDate'],
+            'Modality Class': target_records['ParentModality'],
+            'Platforms & Delivery': target_records['Platforms'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x),
+            'Cell Types': target_records['CellTypes'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x),
+            'Therapeutic Area': target_records['TA'],
+            'Target Disease': target_records['TargetDisease'],
+            'Development Stage': target_records['Stage'],
+            'Deal Value': target_records['DisplayValue'],
+            'Upfront Ratio': target_records['UpfrontRatio'].round(2), 
+            'Partner A': target_records['PartnerA'],
+            'Partner B': target_records['PartnerB'],
+            'Insight': target_records['Insight'],
+            'Title': target_records['Title'],
+            'Summary': target_records['Summary'],
+            'Link': target_records['Link']
+        }
+        
+        export_df = pd.DataFrame(export_data)
+        csv_payload = export_df.to_csv(index=False).encode('utf-8-sig')
+        filename_stamp = datetime.now().strftime('%Y%m%d')
+        
+        if is_authenticated:
+            st.info(f"Premium Target Active: Extracting up to {download_limit} deals based on your active sidebar criteria filters.")
+            st.download_button(
+                label=f"📥 Download Top {len(export_df)} Filtered Deals (CSV)", 
+                data=csv_payload, 
+                file_name=f"SerGene_Premium_Extract_{filename_stamp}.csv", 
+                mime="text/csv"
+            )
+        else:
+            st.warning(f"Free Version Active: Downloads are limited to a maximum of 5 deals. Activate client credentials to unlock up to 20 deals.")
+            st.download_button(
+                label=f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)", 
+                data=csv_payload, 
+                file_name=f"SerGene_Preview_Extract_{filename_stamp}.csv", 
+                mime="text/csv"
+            )
+    else:
+        st.info("No matching data entries are available to generate an extraction file.")
+
+    st.divider()
+
+    # ==========================================
+    # 7. DEAL CARDS
     # ==========================================
     CARD_HTML = """
     <div class="deal-card {extra_class}">
@@ -321,7 +585,7 @@ try:
                 r_pct=r_val, pA=row['PartnerA'], pB=row['PartnerB']
             ), unsafe_allow_html=True)
 
-    # --- RESTORED: BLURRED CARDS & CTA BANNER ---
+    # --- BLURRED CARDS & CTA BANNER ---
     if not is_authenticated:
         for _, row in stats_df.iloc[GLOBAL_PREVIEW_LIMIT : GLOBAL_PREVIEW_LIMIT + BLUR_LIMIT].iterrows():
             st.markdown(CARD_HTML.format(
