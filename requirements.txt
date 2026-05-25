@@ -1,4 +1,6 @@
 streamlit
 pandas
-pyarrow
+numpy
+plotly
 google-genai
+pyarrow
