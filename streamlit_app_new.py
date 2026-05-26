@@ -140,6 +140,7 @@ def load_and_refine_data():
     
     refined_rows = []
     for _, row in df.iterrows():
+        # First pass: gather all raw tags detected on this row
         raw_row_flags = []
         for col_name in row.index:
             if col_name in TECH_COLUMNS:
@@ -151,6 +152,7 @@ def load_and_refine_data():
                     if str(val).lower() in ['yes', 'y', 'true', '1']:
                         raw_row_flags.append(col_name)
 
+        # Second pass: Apply exclusivity rules to eliminate overlapping redundancies
         tags = []
         has_specific_viral = any(x in raw_row_flags for x in ['AAV', 'Lentivirus', 'Lenti'])
 
@@ -171,9 +173,11 @@ def load_and_refine_data():
 
         tags = list(set([t for t in tags if t and str(t).lower() != 'nan']))
         
+        # Split tags cleanly between Cell Types and Engineering/Delivery Platforms
         cell_types_extracted = [t for t in tags if t in CELL_THERAPY_TAGS]
         platforms_extracted = [t for t in tags if t not in CELL_THERAPY_TAGS]
         
+        # B. Modality Groups Mapping
         parent = "Emerging Platforms & Conjugates"  
         norm_tags = [t.lower() for t in tags]
         for group_name, keywords in MODALITY_GROUPS.items():
@@ -185,6 +189,7 @@ def load_and_refine_data():
         up_m = parse_currency(row.get('Upfront', ''))
         ratio = (up_m / val_m) if val_m > 0 else 0.0
 
+        # C. Search Blob Creation
         row_values = []
         for val in row.values:
             if isinstance(val, (list, np.ndarray)):
@@ -347,6 +352,7 @@ try:
             timeline_df = timeline_df.sort_values('Date_Obj', ascending=True)
             timeline_df['stack_y'] = timeline_df.groupby('Date_Obj').cumcount() + 1
             
+            # Formulate categorical matching lists to freeze colors tightly to legend items
             current_available_order = [o for o in MODALITY_ORDER if o in timeline_df['ParentModality'].unique()]
             timeline_df['ParentModality'] = pd.Categorical(timeline_df['ParentModality'], categories=current_available_order, ordered=True)
             timeline_df = timeline_df.sort_values(['Date_Obj', 'ParentModality'])
@@ -471,7 +477,7 @@ try:
         st.warning("🔒 AI Strategic Analysis is a Premium Feature for Clients.")
 
     # ==========================================
-    # 6.5 EXPORT INTELLIGENCE STREAM
+    # 6.5 EXPORT INTELLIGENCE STREAM (IMMUTABLE KEY OPTIMIZATION)
     # ==========================================
     st.write("")
     st.subheader("📥 Export Intelligence Stream")
@@ -502,22 +508,24 @@ try:
         csv_payload = export_df.to_csv(index=False).encode('utf-8-sig')
         filename_stamp = datetime.now().strftime('%Y%m%d')
         
+        # Configure button text and filenames dynamically to enable a unified, rock-solid layout element
         if is_authenticated:
             st.info(f"Premium Target Active: Extracting up to {download_limit} deals based on your active sidebar criteria filters.")
-            st.download_button(
-                label=f"📥 Download Top {len(export_df)} Filtered Deals (CSV)", 
-                data=csv_payload, 
-                file_name=f"SerGene_Premium_Extract_{filename_stamp}.csv", 
-                mime="text/csv"
-            )
+            btn_label = f"📥 Download Top {len(export_df)} Filtered Deals (CSV)"
+            file_prefix = "SerGene_Premium_Extract"
         else:
             st.warning(f"Free Version Active: Downloads are limited to a maximum of 5 deals. Activate client credentials to unlock up to 20 deals.")
-            st.download_button(
-                label=f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)", 
-                data=csv_payload, 
-                file_name=f"SerGene_Preview_Extract_{filename_stamp}.csv", 
-                mime="text/csv"
-            )
+            btn_label = f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)"
+            file_prefix = "SerGene_Preview_Extract"
+
+        # Unified DOM object structure with fixed static key completely immunizes download against layout load drops
+        st.download_button(
+            label=btn_label,
+            data=csv_payload,
+            file_name=f"{file_prefix}_{filename_stamp}.csv",
+            mime="text/csv",
+            key="global_data_stream_export_button"
+        )
     else:
         st.info("No matching data entries are available to generate an extraction file.")
 
