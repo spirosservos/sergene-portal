@@ -243,27 +243,18 @@ try:
 
     st.sidebar.divider()
 
-    # 2. Secure Persistent Session State Authentication
-    if "is_authenticated" not in st.session_state:
-        st.session_state.is_authenticated = False
-
+    # 2. Client Access
+    is_authenticated = False
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         secret_pass = st.secrets.get("access_password")
         password_input = st.text_input("Enter Access Code", type="password")
-        if secret_pass and password_input == secret_pass:
-            st.session_state.is_authenticated = True
-        
-        if st.session_state.is_authenticated:
+        if password_input == secret_pass and secret_pass:
+            is_authenticated = True
             st.success("Full Access Granted")
-            if st.button("Log Out"):
-                st.session_state.is_authenticated = False
-                st.rerun()
-        else:
+        if not is_authenticated:
             st.markdown("---")
             st.caption("Contact Support for Code:")
             st.code("spiros@sergenebio.co.uk")
-
-    is_authenticated = st.session_state.is_authenticated
 
     st.sidebar.divider()
 
@@ -337,7 +328,7 @@ try:
     st.divider()
 
     # ==========================================
-    # 6.2 CHRONOLOGICAL NEWS GRAPHIC
+    # 6.2 CHRONOLOGICAL NEWS GRAPHIC (Pristine Text Wrapping & Legend Position Fix)
     # ==========================================
     lookback_days = 30 if is_authenticated else 7
     label_text = "Month" if is_authenticated else "Week"
@@ -401,7 +392,7 @@ try:
                     "RNA Therapeutics": "#6366f1",                         # Indigo
                     "Immunotherapies": "#ec4899",                          # Pink
                     "Biologics": "#f59e0b",                                # Amber
-                    "Small Molecule": "#b91c1c",                           # Deep Crimson/Red
+                    "Small Molecule": "#b91c1c",                           # Deep Crimson/Red (Shifted from teal for distinct isolation)
                     "Emerging Platforms & Conjugates": "#64748b"            # Slate Grey
                 },
                 category_orders={"ParentModality": MODALITY_ORDER}
@@ -420,17 +411,40 @@ try:
                 ),
                 plot_bgcolor='#ffffff',
                 paper_bgcolor='rgba(0,0,0,0)',
+                
+                # SENSITIVITY TWEAKS: Triggers popup ONLY when cursor is positioned directly on top of the bullet
                 hovermode='closest',
                 hoverdistance=3, 
-                hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0"),
-                xaxis=dict(title=None, showgrid=True, gridcolor='#f1f5f9', tickfont=dict(color='#64748b', size=12), type='date'),
-                yaxis=dict(visible=False, showgrid=False, zeroline=False, showticklabels=False),
+                
+                hoverlabel=dict(
+                    bgcolor="#ffffff",
+                    bordercolor="#e2e8f0"
+                ),
+                xaxis=dict(
+                    title=None,
+                    showgrid=True,
+                    gridcolor='#f1f5f9',
+                    tickfont=dict(color='#64748b', size=12),
+                    type='date'
+                ),
+                yaxis=dict(
+                    visible=False, # Hides structural scale identifiers entirely to clear faint background artifacts
+                    showgrid=False,
+                    zeroline=False,
+                    showticklabels=False
+                ),
+                
+                # BULLETPROOF POSITIONING: Shifts horizontal indicator legend to bottom map boundaries to prevent clipping cutoffs
                 legend=dict(
                     title=dict(text="Modality Class", font=dict(size=12, weight='bold')),
-                    orientation="h", yanchor="top", y=-0.18, xanchor="center", x=0.5
+                    orientation="h",
+                    yanchor="top",
+                    y=-0.18,
+                    xanchor="center",
+                    x=0.5
                 ),
-                margin=dict(l=10, r=10, t=50, b=80), 
-                height=320 
+                margin=dict(l=10, r=10, t=50, b=80), # Expanded bottom tracking boundaries to absorb layout footprint smoothly
+                height=320 # Stepped height up from 260 to give plot components ample workspace area breathing room
             )
             
             st.plotly_chart(fig_timeline, use_container_width=True)
@@ -441,10 +455,7 @@ try:
 
     st.divider()
 
-    # ==========================================
-    # 6.3 CORE GRAPHICS ROW (Now Safely Expanded by Default)
-    # ==========================================
-    with st.expander("📈 Market Trends & Competitive Landscape", expanded=True):
+    with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
         c1, c2, c3 = st.columns(3)
         with c1:
             st.markdown("### **Modality Mix**")
@@ -481,7 +492,7 @@ try:
         st.warning("🔒 AI Strategic Analysis is a Premium Feature for Clients.")
 
     # ==========================================
-    # 6.5 EXPORT INTELLIGENCE STREAM (With Immutable Keys)
+    # 6.5 EXPORT INTELLIGENCE STREAM
     # ==========================================
     st.write("")
     st.subheader("📥 Export Intelligence Stream")
@@ -518,8 +529,7 @@ try:
                 label=f"📥 Download Top {len(export_df)} Filtered Deals (CSV)", 
                 data=csv_payload, 
                 file_name=f"SerGene_Premium_Extract_{filename_stamp}.csv", 
-                mime="text/csv",
-                key="premium_csv_exporter_widget" # Permanent tracking key configuration
+                mime="text/csv"
             )
         else:
             st.warning(f"Free Version Active: Downloads are limited to a maximum of 5 deals. Activate client credentials to unlock up to 20 deals.")
@@ -527,8 +537,7 @@ try:
                 label=f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)", 
                 data=csv_payload, 
                 file_name=f"SerGene_Preview_Extract_{filename_stamp}.csv", 
-                mime="text/csv",
-                key="free_csv_exporter_widget" # Permanent tracking key configuration
+                mime="text/csv"
             )
     else:
         st.info("No matching data entries are available to generate an extraction file.")
