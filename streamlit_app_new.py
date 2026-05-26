@@ -455,7 +455,7 @@ try:
 
     st.divider()
 
-    with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
+    with st.expander("📈 Market Trends & Competitive Landscape", expanded=True):
         c1, c2, c3 = st.columns(3)
         with c1:
             st.markdown("### **Modality Mix**")
