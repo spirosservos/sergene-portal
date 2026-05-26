@@ -5,7 +5,7 @@ import html
 import re
 import os
 import textwrap  
-from datetime import datetime, timedelta, date  # Pristine unified import tracking strategy
+from datetime import datetime, timedelta, date  
 from google import genai 
 import plotly.express as px  
 
@@ -253,15 +253,20 @@ try:
 
     st.sidebar.divider()
 
-    # 2. Client Access
-    is_authenticated = False
+    # 2. Client Access (FIXED WITH SESSION_STATE TRACKING)
+    if "is_authenticated" not in st.session_state:
+        st.session_state["is_authenticated"] = False
+
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         secret_pass = st.secrets.get("access_password")
         password_input = st.text_input("Enter Access Code", type="password")
-        if password_input == secret_pass and secret_pass:
-            is_authenticated = True
+        if secret_pass and password_input == secret_pass:
+            st.session_state["is_authenticated"] = True
             st.success("Full Access Granted")
-        if not is_authenticated:
+        elif password_input and password_input != secret_pass:
+            st.session_state["is_authenticated"] = False
+
+        if not st.session_state["is_authenticated"]:
             st.markdown("---")
             st.caption("Contact Support for Code:")
             st.code("spiros@sergenebio.co.uk")
@@ -310,11 +315,11 @@ try:
 
     GLOBAL_PREVIEW_LIMIT = 5
     BLUR_LIMIT = 3
-    visible_df = stats_df if is_authenticated else stats_df.head(GLOBAL_PREVIEW_LIMIT)
+    visible_df = stats_df if st.session_state["is_authenticated"] else stats_df.head(GLOBAL_PREVIEW_LIMIT)
 
-    # ==========================================
-    # 6. DASHBOARD
-    # ==========================================
+# ==========================================
+# 6. DASHBOARD
+# ==========================================
     st.title("Strategic Deal Intelligence Stream")
     
     # Process and calculate unique companies based on first word extraction
@@ -342,8 +347,8 @@ try:
     # ==========================================
     # 6.2 CHRONOLOGICAL NEWS GRAPHIC
     # ==========================================
-    lookback_days = 30 if is_authenticated else 7
-    label_text = "Month" if is_authenticated else "Week"
+    lookback_days = 30 if st.session_state["is_authenticated"] else 7
+    label_text = "Month" if st.session_state["is_authenticated"] else "Week"
     
     if not stats_df.empty:
         global_latest_date = df_master['Date_Obj'].max()
@@ -362,7 +367,7 @@ try:
             visible_row_ids = visible_df['Row_ID'].values if 'Row_ID' in visible_df.columns else []
             
             for _, r in timeline_df.iterrows():
-                if not is_authenticated and r['Row_ID'] not in visible_row_ids:
+                if not st.session_state["is_authenticated"] and r['Row_ID'] not in visible_row_ids:
                     text_html = (
                         "<span style='font-size:16px; font-family:Arial, sans-serif; color:#64748b; padding:10px;'>"
                         "<b>📅 DATE:</b> %{x}<br><br>"
@@ -396,11 +401,11 @@ try:
                 custom_data=['HoverHTML'], 
                 color_discrete_map={
                     "Gene Therapy/Editing": "#3b82f6",                     
-                    "Cell Therapy": "#10b981",                             
+                    "Cell Therapy": "#10b981",                               
                     "RNA Therapeutics": "#6366f1",                         
                     "Immunotherapies": "#ec4899",                          
                     "Biologics": "#f59e0b",                                
-                    "Small Molecule": "#b91c1c",                           
+                    "Small Molecule": "#b91c1c",                            
                     "Emerging Platforms & Conjugates": "#64748b"            
                 },
                 category_orders={"ParentModality": MODALITY_ORDER}
@@ -455,7 +460,7 @@ try:
 
     # AI Section
     st.write("") 
-    if is_authenticated:
+    if st.session_state["is_authenticated"]:
         ai_ready = st.toggle("Enable AI Strategic Analysis Tool", value=False)
         if ai_ready:
             if st.button("🪄 Generate AI Strategic Brief"):
@@ -482,7 +487,7 @@ try:
     # ==========================================
     st.write("")
     st.subheader("📥 Export Intelligence Stream")
-    download_limit = 20 if is_authenticated else 5
+    download_limit = 20 if st.session_state["is_authenticated"] else 5
     
     if not stats_df.empty:
         target_records = stats_df.head(download_limit)
@@ -507,15 +512,17 @@ try:
         
         export_df = pd.DataFrame(export_data)
         csv_payload = export_df.to_csv(index=False).encode('utf-8-sig')
-        filename_stamp = datetime.now().strftime('%Y%m%d')  # Clean native now call fixed
+        filename_stamp = datetime.now().strftime('%Y%m%d')  
         
-        if is_authenticated:
+        # FIXED IF/ELSE BLOCK WITH STATIC EXPLICIT KEYS Added
+        if st.session_state["is_authenticated"]:
             st.info(f"Premium Target Active: Extracting up to {download_limit} deals based on your active sidebar criteria filters.")
             st.download_button(
                 label=f"📥 Download Top {len(export_df)} Filtered Deals (CSV)", 
                 data=csv_payload, 
                 file_name=f"SerGene_Premium_Extract_{filename_stamp}.csv", 
-                mime="text/csv"
+                mime="text/csv",
+                key="premium_csv_download_btn"
             )
         else:
             st.warning(f"Free Version Active: Downloads are limited to a maximum of 5 deals. Activate client credentials to unlock up to 20 deals.")
@@ -523,7 +530,8 @@ try:
                 label=f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)", 
                 data=csv_payload, 
                 file_name=f"SerGene_Preview_Extract_{filename_stamp}.csv", 
-                mime="text/csv"
+                mime="text/csv",
+                key="preview_csv_download_btn"
             )
     else:
         st.info("No matching data entries are available to generate an extraction file.")
@@ -572,7 +580,7 @@ try:
             ), unsafe_allow_html=True)
 
     # --- BLURRED CARDS & CTA BANNER ---
-    if not is_authenticated:
+    if not st.session_state["is_authenticated"]:
         if not stats_df.empty and len(stats_df) > GLOBAL_PREVIEW_LIMIT:
             for _, row in stats_df.iloc[GLOBAL_PREVIEW_LIMIT : GLOBAL_PREVIEW_LIMIT + BLUR_LIMIT].iterrows():
                 st.markdown(CARD_HTML.format(
