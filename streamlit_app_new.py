@@ -4,7 +4,7 @@ import numpy as np
 import html
 import re
 import os
-import textwrap  # Integrated to break long analytical insights into multi-line tooltips
+import textwrap  
 from datetime import datetime
 from google import genai 
 import plotly.express as px  
@@ -243,18 +243,24 @@ try:
 
     st.sidebar.divider()
 
-    # 2. Client Access
-    is_authenticated = False
+    # 2. Bulletproof Client Access (Using Persistent Session State)
+    if "is_authenticated" not in st.session_state:
+        st.session_state.is_authenticated = False
+
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         secret_pass = st.secrets.get("access_password")
         password_input = st.text_input("Enter Access Code", type="password")
-        if password_input == secret_pass and secret_pass:
-            is_authenticated = True
+        if secret_pass and password_input == secret_pass:
+            st.session_state.is_authenticated = True
+        
+        if st.session_state.is_authenticated:
             st.success("Full Access Granted")
-        if not is_authenticated:
+        else:
             st.markdown("---")
             st.caption("Contact Support for Code:")
             st.code("spiros@sergenebio.co.uk")
+
+    is_authenticated = st.session_state.is_authenticated
 
     st.sidebar.divider()
 
@@ -328,7 +334,7 @@ try:
     st.divider()
 
     # ==========================================
-    # 6.2 CHRONOLOGICAL NEWS GRAPHIC (Pristine Text Wrapping & Legend Position Fix)
+    # 6.2 CHRONOLOGICAL NEWS GRAPHIC
     # ==========================================
     lookback_days = 30 if is_authenticated else 7
     label_text = "Month" if is_authenticated else "Week"
@@ -343,7 +349,6 @@ try:
             timeline_df = timeline_df.sort_values('Date_Obj', ascending=True)
             timeline_df['stack_y'] = timeline_df.groupby('Date_Obj').cumcount() + 1
             
-            # Formulate categorical matching lists to freeze colors tightly to legend items
             current_available_order = [o for o in MODALITY_ORDER if o in timeline_df['ParentModality'].unique()]
             timeline_df['ParentModality'] = pd.Categorical(timeline_df['ParentModality'], categories=current_available_order, ordered=True)
             timeline_df = timeline_df.sort_values(['Date_Obj', 'ParentModality'])
@@ -360,7 +365,6 @@ try:
                         "Activate your access code to unlock real-time dashboard analytics.</span>"
                     )
                 else:
-                    # Inject automated line breaking rules directly to long analysis fields
                     raw_insight = r['Insight'] if r['Insight'] else ""
                     wrapped_insight = "<br>".join(textwrap.wrap(html.escape(raw_insight), width=70))
                     
@@ -379,7 +383,6 @@ try:
                 
             timeline_df['HoverHTML'] = hover_meta_list
             
-            # Secure execution mapping by directly embedding the string inside px.scatter custom_data
             fig_timeline = px.scatter(
                 timeline_df,
                 x='Date_Obj',
@@ -387,18 +390,17 @@ try:
                 color='ParentModality',
                 custom_data=['HoverHTML'], 
                 color_discrete_map={
-                    "Gene Therapy/Editing": "#3b82f6",                     # Vibrant Blue
-                    "Cell Therapy": "#10b981",                             # Emerald Green
-                    "RNA Therapeutics": "#6366f1",                         # Indigo
-                    "Immunotherapies": "#ec4899",                          # Pink
-                    "Biologics": "#f59e0b",                                # Amber
-                    "Small Molecule": "#b91c1c",                           # Deep Crimson/Red (Shifted from teal for distinct isolation)
-                    "Emerging Platforms & Conjugates": "#64748b"            # Slate Grey
+                    "Gene Therapy/Editing": "#3b82f6",                     
+                    "Cell Therapy": "#10b981",                             
+                    "RNA Therapeutics": "#6366f1",                         
+                    "Immunotherapies": "#ec4899",                          
+                    "Biologics": "#f59e0b",                                
+                    "Small Molecule": "#b91c1c",                           
+                    "Emerging Platforms & Conjugates": "#64748b"            
                 },
                 category_orders={"ParentModality": MODALITY_ORDER}
             )
             
-            # Custom tokens mapping avoids mixing labels. <extra></extra> hides trace text boxes
             fig_timeline.update_traces(
                 marker=dict(size=18, opacity=0.85, line=dict(width=1.5, color='#ffffff')),
                 hovertemplate="%{customdata[0]}<extra></extra>" 
@@ -411,42 +413,18 @@ try:
                 ),
                 plot_bgcolor='#ffffff',
                 paper_bgcolor='rgba(0,0,0,0)',
-                
-                # SENSITIVITY TWEAKS: Triggers popup ONLY when cursor is positioned directly on top of the bullet
                 hovermode='closest',
                 hoverdistance=3, 
-                
-                hoverlabel=dict(
-                    bgcolor="#ffffff",
-                    bordercolor="#e2e8f0"
-                ),
-                xaxis=dict(
-                    title=None,
-                    showgrid=True,
-                    gridcolor='#f1f5f9',
-                    tickfont=dict(color='#64748b', size=12),
-                    type='date'
-                ),
-                yaxis=dict(
-                    visible=False, # Hides structural scale identifiers entirely to clear faint background artifacts
-                    showgrid=False,
-                    zeroline=False,
-                    showticklabels=False
-                ),
-                
-                # BULLETPROOF POSITIONING: Shifts horizontal indicator legend to bottom map boundaries to prevent clipping cutoffs
+                hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0"),
+                xaxis=dict(title=None, showgrid=True, gridcolor='#f1f5f9', tickfont=dict(color='#64748b', size=12), type='date'),
+                yaxis=dict(visible=False, showgrid=False, zeroline=False, showticklabels=False),
                 legend=dict(
                     title=dict(text="Modality Class", font=dict(size=12, weight='bold')),
-                    orientation="h",
-                    yanchor="top",
-                    y=-0.18,
-                    xanchor="center",
-                    x=0.5
+                    orientation="h", yanchor="top", y=-0.18, xanchor="center", x=0.5
                 ),
-                margin=dict(l=10, r=10, t=50, b=80), # Expanded bottom tracking boundaries to absorb layout footprint smoothly
-                height=320 # Stepped height up from 260 to give plot components ample workspace area breathing room
+                margin=dict(l=10, r=10, t=50, b=80), 
+                height=320 
             )
-            
             st.plotly_chart(fig_timeline, use_container_width=True)
         else:
             st.info(f"No transactions recorded during the immediate 1-{label_text} timeframe window.")
@@ -455,6 +433,9 @@ try:
 
     st.divider()
 
+    # ==========================================
+    # 6.3 CORE GRAPHICS ROW (Expanded By Default)
+    # ==========================================
     with st.expander("📈 Market Trends & Competitive Landscape", expanded=True):
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -492,7 +473,7 @@ try:
         st.warning("🔒 AI Strategic Analysis is a Premium Feature for Clients.")
 
     # ==========================================
-    # 6.5 EXPORT INTELLIGENCE STREAM
+    # 6.5 EXPORT INTELLIGENCE STREAM (Safe execution guaranteed by st.session_state)
     # ==========================================
     st.write("")
     st.subheader("📥 Export Intelligence Stream")
