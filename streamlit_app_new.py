@@ -4,7 +4,7 @@ import numpy as np
 import html
 import re
 import os
-import textwrap  
+import textwrap  # Integrated to break long analytical insights into multi-line tooltips
 from datetime import datetime
 from google import genai 
 import plotly.express as px  
@@ -140,6 +140,7 @@ def load_and_refine_data():
     
     refined_rows = []
     for _, row in df.iterrows():
+        # First pass: gather all raw tags detected on this row
         raw_row_flags = []
         for col_name in row.index:
             if col_name in TECH_COLUMNS:
@@ -151,6 +152,7 @@ def load_and_refine_data():
                     if str(val).lower() in ['yes', 'y', 'true', '1']:
                         raw_row_flags.append(col_name)
 
+        # Second pass: Apply exclusivity rules to eliminate overlapping redundancies
         tags = []
         has_specific_viral = any(x in raw_row_flags for x in ['AAV', 'Lentivirus', 'Lenti'])
 
@@ -171,9 +173,11 @@ def load_and_refine_data():
 
         tags = list(set([t for t in tags if t and str(t).lower() != 'nan']))
         
+        # Split tags cleanly between Cell Types and Engineering/Delivery Platforms
         cell_types_extracted = [t for t in tags if t in CELL_THERAPY_TAGS]
         platforms_extracted = [t for t in tags if t not in CELL_THERAPY_TAGS]
         
+        # B. Modality Groups Mapping
         parent = "Emerging Platforms & Conjugates"  
         norm_tags = [t.lower() for t in tags]
         for group_name, keywords in MODALITY_GROUPS.items():
@@ -185,6 +189,7 @@ def load_and_refine_data():
         up_m = parse_currency(row.get('Upfront', ''))
         ratio = (up_m / val_m) if val_m > 0 else 0.0
 
+        # C. Search Blob Creation
         row_values = []
         for val in row.values:
             if isinstance(val, (list, np.ndarray)):
@@ -347,6 +352,7 @@ try:
             timeline_df = timeline_df.sort_values('Date_Obj', ascending=True)
             timeline_df['stack_y'] = timeline_df.groupby('Date_Obj').cumcount() + 1
             
+            # Formulate categorical matching lists to freeze colors tightly to legend items
             current_available_order = [o for o in MODALITY_ORDER if o in timeline_df['ParentModality'].unique()]
             timeline_df['ParentModality'] = pd.Categorical(timeline_df['ParentModality'], categories=current_available_order, ordered=True)
             timeline_df = timeline_df.sort_values(['Date_Obj', 'ParentModality'])
@@ -363,6 +369,7 @@ try:
                         "Activate your access code to unlock real-time dashboard analytics.</span>"
                     )
                 else:
+                    # Inject automated line breaking rules directly to long analysis fields
                     raw_insight = r['Insight'] if r['Insight'] else ""
                     wrapped_insight = "<br>".join(textwrap.wrap(html.escape(raw_insight), width=70))
                     
@@ -381,6 +388,7 @@ try:
                 
             timeline_df['HoverHTML'] = hover_meta_list
             
+            # Secure execution mapping by directly embedding the string inside px.scatter custom_data
             fig_timeline = px.scatter(
                 timeline_df,
                 x='Date_Obj',
@@ -388,17 +396,18 @@ try:
                 color='ParentModality',
                 custom_data=['HoverHTML'], 
                 color_discrete_map={
-                    "Gene Therapy/Editing": "#3b82f6",                     
-                    "Cell Therapy": "#10b981",                             
-                    "RNA Therapeutics": "#6366f1",                         
-                    "Immunotherapies": "#ec4899",                          
-                    "Biologics": "#f59e0b",                                
-                    "Small Molecule": "#b91c1c",                           
-                    "Emerging Platforms & Conjugates": "#64748b"            
+                    "Gene Therapy/Editing": "#3b82f6",                     # Vibrant Blue
+                    "Cell Therapy": "#10b981",                             # Emerald Green
+                    "RNA Therapeutics": "#6366f1",                         # Indigo
+                    "Immunotherapies": "#ec4899",                          # Pink
+                    "Biologics": "#f59e0b",                                # Amber
+                    "Small Molecule": "#b91c1c",                           # Deep Crimson/Red
+                    "Emerging Platforms & Conjugates": "#64748b"            # Slate Grey
                 },
                 category_orders={"ParentModality": MODALITY_ORDER}
             )
             
+            # Custom tokens mapping avoids mixing labels. <extra></extra> hides trace text boxes
             fig_timeline.update_traces(
                 marker=dict(size=18, opacity=0.85, line=dict(width=1.5, color='#ffffff')),
                 hovertemplate="%{customdata[0]}<extra></extra>" 
@@ -423,6 +432,7 @@ try:
                 margin=dict(l=10, r=10, t=50, b=80), 
                 height=320 
             )
+            
             st.plotly_chart(fig_timeline, use_container_width=True)
         else:
             st.info(f"No transactions recorded during the immediate 1-{label_text} timeframe window.")
@@ -432,9 +442,9 @@ try:
     st.divider()
 
     # ==========================================
-    # 6.3 CORE GRAPHICS ROW (Reverted back to False for maximum performance stability)
+    # 6.3 CORE GRAPHICS ROW (Now Safely Expanded by Default)
     # ==========================================
-    with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
+    with st.expander("📈 Market Trends & Competitive Landscape", expanded=True):
         c1, c2, c3 = st.columns(3)
         with c1:
             st.markdown("### **Modality Mix**")
@@ -471,7 +481,7 @@ try:
         st.warning("🔒 AI Strategic Analysis is a Premium Feature for Clients.")
 
     # ==========================================
-    # 6.5 EXPORT INTELLIGENCE STREAM (Separated buttons with individual keys)
+    # 6.5 EXPORT INTELLIGENCE STREAM (With Immutable Keys)
     # ==========================================
     st.write("")
     st.subheader("📥 Export Intelligence Stream")
@@ -505,20 +515,20 @@ try:
         if is_authenticated:
             st.info(f"Premium Target Active: Extracting up to {download_limit} deals based on your active sidebar criteria filters.")
             st.download_button(
-                label=f"📥 Download Top {len(export_df)} Filtered Deals (CSV)",
-                data=csv_payload,
-                file_name=f"SerGene_Premium_Extract_{filename_stamp}.csv",
+                label=f"📥 Download Top {len(export_df)} Filtered Deals (CSV)", 
+                data=csv_payload, 
+                file_name=f"SerGene_Premium_Extract_{filename_stamp}.csv", 
                 mime="text/csv",
-                key="premium_csv_download_trigger"
+                key="premium_csv_exporter_widget" # Permanent tracking key configuration
             )
         else:
             st.warning(f"Free Version Active: Downloads are limited to a maximum of 5 deals. Activate client credentials to unlock up to 20 deals.")
             st.download_button(
-                label=f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)",
-                data=csv_payload,
-                file_name=f"SerGene_Preview_Extract_{filename_stamp}.csv",
+                label=f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)", 
+                data=csv_payload, 
+                file_name=f"SerGene_Preview_Extract_{filename_stamp}.csv", 
                 mime="text/csv",
-                key="free_csv_download_trigger"
+                key="free_csv_exporter_widget" # Permanent tracking key configuration
             )
     else:
         st.info("No matching data entries are available to generate an extraction file.")
