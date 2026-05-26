@@ -5,7 +5,7 @@ import html
 import re
 import os
 import textwrap  
-import datetime  # Integrated for native, reliable date arithmetic on cloud environments
+from datetime import datetime, timedelta, date  # Pristine unified import tracking strategy
 from google import genai 
 import plotly.express as px  
 
@@ -119,7 +119,6 @@ st.markdown("""
 # ==========================================
 @st.cache_data
 def load_and_refine_data():
-    # Master schema design map protects against empty file KeyError crashes on Cloud builds
     columns_template = [
         'Row_ID', 'Date', 'Date_Obj', 'DisplayDate', 'ParentModality', 'SubModalities',
         'CellTypes', 'Platforms', 'TA', 'TargetDisease', 'Stage', 'TotalValueM',
@@ -151,7 +150,6 @@ def load_and_refine_data():
     
     refined_rows = []
     for _, row in df.iterrows():
-        # First pass: gather all raw tags detected on this row
         raw_row_flags = []
         for col_name in row.index:
             if col_name in TECH_COLUMNS:
@@ -163,7 +161,6 @@ def load_and_refine_data():
                     if str(val).lower() in ['yes', 'y', 'true', '1']:
                         raw_row_flags.append(col_name)
 
-        # Second pass: Apply exclusivity rules to eliminate overlapping redundancies
         tags = []
         has_specific_viral = any(x in raw_row_flags for x in ['AAV', 'Lentivirus', 'Lenti'])
 
@@ -184,11 +181,9 @@ def load_and_refine_data():
 
         tags = list(set([t for t in tags if t and str(t).lower() != 'nan']))
         
-        # Split tags cleanly between Cell Types and Engineering/Delivery Platforms
         cell_types_extracted = [t for t in tags if t in CELL_THERAPY_TAGS]
         platforms_extracted = [t for t in tags if t not in CELL_THERAPY_TAGS]
         
-        # B. Modality Groups Mapping
         parent = "Emerging Platforms & Conjugates"  
         norm_tags = [t.lower() for t in tags]
         for group_name, keywords in MODALITY_GROUPS.items():
@@ -200,7 +195,6 @@ def load_and_refine_data():
         up_m = parse_currency(row.get('Upfront', ''))
         ratio = (up_m / val_m) if val_m > 0 else 0.0
 
-        # C. Search Blob Creation
         row_values = []
         for val in row.values:
             if isinstance(val, (list, np.ndarray)):
@@ -249,13 +243,13 @@ try:
     # 1. Select Timeframe & Date Range
     st.sidebar.subheader("📅 Select Timeframe")
     if df_master.empty:
-        min_db = datetime.date.today() - datetime.timedelta(days=30)
-        max_db = datetime.date.today()
+        min_db = date.today() - timedelta(days=30)
+        max_db = date.today()
     else:
         min_db = df_master['Date_Obj'].min()
         max_db = df_master['Date_Obj'].max()
         
-    date_sel = st.sidebar.date_input("Date Range", value=(min_db, max_db), min_value=min_db, max_value=max(max_db, datetime.date.today()))
+    date_sel = st.sidebar.date_input("Date Range", value=(min_db, max_db), min_value=min_db, max_value=max(max_db, date.today()))
 
     st.sidebar.divider()
 
@@ -353,7 +347,7 @@ try:
     
     if not stats_df.empty:
         global_latest_date = df_master['Date_Obj'].max()
-        cutoff_date = global_latest_date - datetime.timedelta(days=lookback_days)
+        cutoff_date = global_latest_date - timedelta(days=lookback_days)
         timeline_df = stats_df[stats_df['Date_Obj'] >= cutoff_date].copy()
         
         if not timeline_df.empty:
@@ -513,7 +507,7 @@ try:
         
         export_df = pd.DataFrame(export_data)
         csv_payload = export_df.to_csv(index=False).encode('utf-8-sig')
-        filename_stamp = datetime.now().strftime('%Y%m%d')
+        filename_stamp = datetime.now().strftime('%Y%m%d')  # Clean native now call fixed
         
         if is_authenticated:
             st.info(f"Premium Target Active: Extracting up to {download_limit} deals based on your active sidebar criteria filters.")
