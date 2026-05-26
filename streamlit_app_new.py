@@ -140,7 +140,6 @@ def load_and_refine_data():
     
     refined_rows = []
     for _, row in df.iterrows():
-        # First pass: gather all raw tags detected on this row
         raw_row_flags = []
         for col_name in row.index:
             if col_name in TECH_COLUMNS:
@@ -152,7 +151,6 @@ def load_and_refine_data():
                     if str(val).lower() in ['yes', 'y', 'true', '1']:
                         raw_row_flags.append(col_name)
 
-        # Second pass: Apply exclusivity rules to eliminate overlapping redundancies
         tags = []
         has_specific_viral = any(x in raw_row_flags for x in ['AAV', 'Lentivirus', 'Lenti'])
 
@@ -173,11 +171,9 @@ def load_and_refine_data():
 
         tags = list(set([t for t in tags if t and str(t).lower() != 'nan']))
         
-        # Split tags cleanly between Cell Types and Engineering/Delivery Platforms
         cell_types_extracted = [t for t in tags if t in CELL_THERAPY_TAGS]
         platforms_extracted = [t for t in tags if t not in CELL_THERAPY_TAGS]
         
-        # B. Modality Groups Mapping
         parent = "Emerging Platforms & Conjugates"  
         norm_tags = [t.lower() for t in tags]
         for group_name, keywords in MODALITY_GROUPS.items():
@@ -189,7 +185,6 @@ def load_and_refine_data():
         up_m = parse_currency(row.get('Upfront', ''))
         ratio = (up_m / val_m) if val_m > 0 else 0.0
 
-        # C. Search Blob Creation
         row_values = []
         for val in row.values:
             if isinstance(val, (list, np.ndarray)):
@@ -243,7 +238,7 @@ try:
 
     st.sidebar.divider()
 
-    # 2. Bulletproof Client Access (Using Persistent Session State)
+    # 2. Secure Persistent Session State Authentication
     if "is_authenticated" not in st.session_state:
         st.session_state.is_authenticated = False
 
@@ -255,6 +250,9 @@ try:
         
         if st.session_state.is_authenticated:
             st.success("Full Access Granted")
+            if st.button("Log Out"):
+                st.session_state.is_authenticated = False
+                st.rerun()
         else:
             st.markdown("---")
             st.caption("Contact Support for Code:")
@@ -473,7 +471,7 @@ try:
         st.warning("🔒 AI Strategic Analysis is a Premium Feature for Clients.")
 
     # ==========================================
-    # 6.5 EXPORT INTELLIGENCE STREAM (Safe execution guaranteed by st.session_state)
+    # 6.5 EXPORT INTELLIGENCE STREAM
     # ==========================================
     st.write("")
     st.subheader("📥 Export Intelligence Stream")
