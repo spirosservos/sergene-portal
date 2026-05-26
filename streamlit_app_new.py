@@ -119,9 +119,20 @@ st.markdown("""
 # ==========================================
 @st.cache_data
 def load_and_refine_data():
+    # Master schema design map protects against empty file KeyError crashes on Cloud builds
+    columns_template = [
+        'Row_ID', 'Date', 'Date_Obj', 'DisplayDate', 'ParentModality', 'SubModalities',
+        'CellTypes', 'Platforms', 'TA', 'TargetDisease', 'Stage', 'TotalValueM',
+        'UpfrontRatio', 'DisplayValue', 'PartnerA', 'PartnerB', 'Insight', 'Title',
+        'Summary', 'Link', 'SearchBlob'
+    ]
+    
     if not os.path.exists("sg_intel_assets.arrow"):
-        return pd.DataFrame()
+        return pd.DataFrame(columns=columns_template)
+        
     df = pd.read_feather("sg_intel_assets.arrow") 
+    if df.empty:
+        return pd.DataFrame(columns=columns_template)
     
     if 'Date' in df.columns:
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
@@ -237,9 +248,14 @@ try:
 
     # 1. Select Timeframe & Date Range
     st.sidebar.subheader("📅 Select Timeframe")
-    min_db = df_master['Date_Obj'].min()
-    max_db = df_master['Date_Obj'].max()
-    date_sel = st.sidebar.date_input("Date Range", value=(min_db, max_db), min_value=min_db, max_value=max(max_db, datetime.now().date()))
+    if df_master.empty:
+        min_db = datetime.date.today() - datetime.timedelta(days=30)
+        max_db = datetime.date.today()
+    else:
+        min_db = df_master['Date_Obj'].min()
+        max_db = df_master['Date_Obj'].max()
+        
+    date_sel = st.sidebar.date_input("Date Range", value=(min_db, max_db), min_value=min_db, max_value=max(max_db, datetime.date.today()))
 
     st.sidebar.divider()
 
@@ -259,24 +275,24 @@ try:
     st.sidebar.divider()
 
     # 3. Modality Class
-    existing_parents = df_master['ParentModality'].unique().tolist()
+    existing_parents = df_master['ParentModality'].unique().tolist() if not df_master.empty else []
     sorted_parents_options = [m for m in MODALITY_ORDER if m in existing_parents] + [m for m in existing_parents if m not in MODALITY_ORDER]
     sel_parents = st.sidebar.multiselect("Modality Class", sorted_parents_options)
     
     # 4. Platforms & Delivery Dropdown
-    all_platforms = list(set([p for sub in df_master['Platforms'] for p in sub]))
+    all_platforms = list(set([p for sub in df_master['Platforms'] for p in sub])) if not df_master.empty else []
     sorted_platform_options = [p for p in PLATFORM_ORDER if p in all_platforms] + [p for p in all_platforms if p not in PLATFORM_ORDER]
     sel_platforms = st.sidebar.multiselect("Platforms & Delivery", sorted_platform_options)
 
     # 5. Cell Types Dropdown
-    all_cells = sorted(list(set([c for sub in df_master['CellTypes'] for c in sub])))
+    all_cells = sorted(list(set([c for sub in df_master['CellTypes'] for c in sub]))) if not df_master.empty else []
     sel_cells = st.sidebar.multiselect("Cell Types", all_cells)
 
     # 6. Therapeutic Area
-    sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()))
+    sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist())) if not df_master.empty else []
 
     # 7. Development Stage
-    sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()))
+    sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist())) if not df_master.empty else []
     
     # 8. Search Everything (Deep Scan)
     search_term = st.sidebar.text_input("🔍 Search Everything (Deep Scan)")
@@ -308,38 +324,36 @@ try:
     st.title("Strategic Deal Intelligence Stream")
     
     # Process and calculate unique companies based on first word extraction
-    partners_combined = pd.concat([stats_df['PartnerA'], stats_df['PartnerB']]).dropna()
-    excluded_placeholders = ['n/a', 'nan', '', 'locked', 'unknown']
-    partners_combined = partners_combined[~partners_combined.astype(str).str.lower().isin(excluded_placeholders)]
-    
-    company_first_words = partners_combined.astype(str).apply(lambda x: x.split()[0].lower() if len(x.split()) > 0 else '')
-    unique_companies_count = company_first_words[company_first_words != ''].nunique()
+    if not stats_df.empty:
+        partners_combined = pd.concat([stats_df['PartnerA'], stats_df['PartnerB']]).dropna()
+        excluded_placeholders = ['n/a', 'nan', '', 'locked', 'unknown']
+        partners_combined = partners_combined[~partners_combined.astype(str).str.lower().isin(excluded_placeholders)]
+        company_first_words = partners_combined.astype(str).apply(lambda x: x.split()[0].lower() if len(x.split()) > 0 else '')
+        unique_companies_count = company_first_words[company_first_words != ''].nunique()
+    else:
+        unique_companies_count = 0
     
     # 4-Column Layout
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Database Depth", f"{len(stats_df)} Deals")
     m2.metric("Companies Tracked", f"{unique_companies_count} Unique")
-    m3.metric("Market Volume Analysed", f"${stats_df['TotalValueM'].sum()/1000:.1f}B")
+    m3.metric("Market Volume Analysed", f"${stats_df['TotalValueM'].sum()/1000:.1f}B" if not stats_df.empty else "$0.0B")
     
-    valid_r = stats_df[stats_df['UpfrontRatio'] > 0]['UpfrontRatio']
+    valid_r = stats_df[stats_df['UpfrontRatio'] > 0]['UpfrontRatio'] if not stats_df.empty else pd.Series()
     avg_r = valid_r.mean() if not valid_r.empty else 0
     m4.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
 
     st.divider()
 
     # ==========================================
-    # 6.2 CHRONOLOGICAL NEWS GRAPHIC (Fixed Cloud-Filtering Lookback)
+    # 6.2 CHRONOLOGICAL NEWS GRAPHIC
     # ==========================================
     lookback_days = 30 if is_authenticated else 7
     label_text = "Month" if is_authenticated else "Week"
     
     if not stats_df.empty:
-        # FIX 1: Anchor lookback window to global database peak so user searches don't compress the calendar layout
         global_latest_date = df_master['Date_Obj'].max()
-        
-        # FIX 2: Use native datetime.timedelta to prevent silent Timestamp drops on multi-threaded Cloud instances
         cutoff_date = global_latest_date - datetime.timedelta(days=lookback_days)
-        
         timeline_df = stats_df[stats_df['Date_Obj'] >= cutoff_date].copy()
         
         if not timeline_df.empty:
@@ -422,7 +436,6 @@ try:
                 margin=dict(l=10, r=10, t=50, b=80), 
                 height=320 
             )
-            
             st.plotly_chart(fig_timeline, use_container_width=True)
         else:
             st.info(f"No transactions recorded during the immediate 1-{label_text} timeframe window.")
@@ -432,16 +445,19 @@ try:
     st.divider()
 
     with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown("### **Modality Mix**")
-            st.bar_chart(stats_df['ParentModality'].value_counts(), color="#3b82f6")
-        with c2:
-            st.markdown("### **Therapeutic Focus**")
-            st.bar_chart(stats_df['TA'].value_counts(), color="#10b981")
-        with c3:
-            st.markdown("### **Development Stage**")
-            st.bar_chart(stats_df['Stage'].value_counts(), color="#6366f1")
+        if not stats_df.empty:
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.markdown("### **Modality Mix**")
+                st.bar_chart(stats_df['ParentModality'].value_counts(), color="#3b82f6")
+            with c2:
+                st.markdown("### **Therapeutic Focus**")
+                st.bar_chart(stats_df['TA'].value_counts(), color="#10b981")
+            with c3:
+                st.markdown("### **Development Stage**")
+                st.bar_chart(stats_df['Stage'].value_counts(), color="#6366f1")
+        else:
+            st.info("No metric data available to generate trend plots.")
 
     # AI Section
     st.write("") 
@@ -450,7 +466,7 @@ try:
         if ai_ready:
             if st.button("🪄 Generate AI Strategic Brief"):
                 with st.status("🤖 Analyzing current deal flow...", expanded=True):
-                    deal_list = "\n".join([f"- {r['PartnerA']} & {r['PartnerB']}: {r['Insight']}" for _, r in stats_df.head(20).iterrows()])
+                    deal_list = "\n".join([f"- {r['PartnerA']} & {r['PartnerB']}: {r['Insight']}" for _, r in stats_df.head(20).iterrows()]) if not stats_df.empty else ""
                     prompt = f"""
                     You are a Senior Biotech Strategic Analyst. Analyze these recent deals:
                     {deal_list}
@@ -563,13 +579,14 @@ try:
 
     # --- BLURRED CARDS & CTA BANNER ---
     if not is_authenticated:
-        for _, row in stats_df.iloc[GLOBAL_PREVIEW_LIMIT : GLOBAL_PREVIEW_LIMIT + BLUR_LIMIT].iterrows():
-            st.markdown(CARD_HTML.format(
-                extra_class="blurred-card", d_date=row['DisplayDate'], ta=row['TA'], target="LOCKED",
-                stage=row['Stage'], p_mod=row['ParentModality'], link="#", insight="LOCKED", 
-                title="LOCKED", summary="Unlock full access to view details.", tags="", 
-                value="$$$", r_pct=0, pA="LOCKED", pB="LOCKED"
-            ), unsafe_allow_html=True)
+        if not stats_df.empty and len(stats_df) > GLOBAL_PREVIEW_LIMIT:
+            for _, row in stats_df.iloc[GLOBAL_PREVIEW_LIMIT : GLOBAL_PREVIEW_LIMIT + BLUR_LIMIT].iterrows():
+                st.markdown(CARD_HTML.format(
+                    extra_class="blurred-card", d_date=row['DisplayDate'], ta=row['TA'], target="LOCKED",
+                    stage=row['Stage'], p_mod=row['ParentModality'], link="#", insight="LOCKED", 
+                    title="LOCKED", summary="Unlock full access to view details.", tags="", 
+                    value="$$$", r_pct=0, pA="LOCKED", pB="LOCKED"
+                ), unsafe_allow_html=True)
             
         mailto_link = "mailto:spiros@sergenebio.co.uk?subject=Access Request"
         st.markdown(f"""
