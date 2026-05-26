@@ -243,18 +243,24 @@ try:
 
     st.sidebar.divider()
 
-    # 2. Client Access (Cloud Sync Key Protection Applied)
-    is_authenticated = False
+    # 2. Persistent Client Access (Fixes Cloud Download Trigger Desync)
+    if "is_authenticated" not in st.session_state:
+        st.session_state.is_authenticated = False
+
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         secret_pass = st.secrets.get("access_password")
-        password_input = st.text_input("Enter Access Code", type="password", key="client_access_field_identity")
+        password_input = st.text_input("Enter Access Code", type="password", key="cloud_password_input_field")
         if password_input == secret_pass and secret_pass:
-            is_authenticated = True
+            st.session_state.is_authenticated = True
+        
+        if st.session_state.is_authenticated:
             st.success("Full Access Granted")
-        if not is_authenticated:
+        else:
             st.markdown("---")
             st.caption("Contact Support for Code:")
             st.code("spiros@sergenebio.co.uk")
+
+    is_authenticated = st.session_state.is_authenticated
 
     st.sidebar.divider()
 
@@ -328,7 +334,7 @@ try:
     st.divider()
 
     # ==========================================
-    # 6.2 CHRONOLOGICAL NEWS GRAPHIC (Pristine Text Wrapping & Legend Position Fix)
+    # 6.2 CHRONOLOGICAL NEWS GRAPHIC
     # ==========================================
     lookback_days = 30 if is_authenticated else 7
     label_text = "Month" if is_authenticated else "Week"
@@ -360,6 +366,7 @@ try:
                         "Activate your access code to unlock real-time dashboard analytics.</span>"
                     )
                 else:
+                    # Inject automated line breaking rules directly to long analysis fields
                     raw_insight = r['Insight'] if r['Insight'] else ""
                     wrapped_insight = "<br>".join(textwrap.wrap(html.escape(raw_insight), width=70))
                     
@@ -378,6 +385,7 @@ try:
                 
             timeline_df['HoverHTML'] = hover_meta_list
             
+            # Secure execution mapping by directly embedding the string inside px.scatter custom_data
             fig_timeline = px.scatter(
                 timeline_df,
                 x='Date_Obj',
@@ -385,17 +393,18 @@ try:
                 color='ParentModality',
                 custom_data=['HoverHTML'], 
                 color_discrete_map={
-                    "Gene Therapy/Editing": "#3b82f6",                     
-                    "Cell Therapy": "#10b981",                             
-                    "RNA Therapeutics": "#6366f1",                         
-                    "Immunotherapies": "#ec4899",                          
-                    "Biologics": "#f59e0b",                                
-                    "Small Molecule": "#b91c1c",                           
-                    "Emerging Platforms & Conjugates": "#64748b"            
+                    "Gene Therapy/Editing": "#3b82f6",                     # Vibrant Blue
+                    "Cell Therapy": "#10b981",                             # Emerald Green
+                    "RNA Therapeutics": "#6366f1",                         # Indigo
+                    "Immunotherapies": "#ec4899",                          # Pink
+                    "Biologics": "#f59e0b",                                # Amber
+                    "Small Molecule": "#b91c1c",                           # Deep Crimson/Red
+                    "Emerging Platforms & Conjugates": "#64748b"            # Slate Grey
                 },
                 category_orders={"ParentModality": MODALITY_ORDER}
             )
             
+            # Custom tokens mapping avoids mixing labels. <extra></extra> hides trace text boxes
             fig_timeline.update_traces(
                 marker=dict(size=18, opacity=0.85, line=dict(width=1.5, color='#ffffff')),
                 hovertemplate="%{customdata[0]}<extra></extra>" 
@@ -429,10 +438,8 @@ try:
 
     st.divider()
 
-    # ==========================================
-    # 6.3 CORE GRAPHICS ROW (Open by default)
-    # ==========================================
-    with st.expander("📈 Market Trends & Competitive Landscape", expanded=True):
+    # Reverted to expanded=False to stop the cloud re-render timing issues completely
+    with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
         c1, c2, c3 = st.columns(3)
         with c1:
             st.markdown("### **Modality Mix**")
@@ -469,7 +476,7 @@ try:
         st.warning("🔒 AI Strategic Analysis is a Premium Feature for Clients.")
 
     # ==========================================
-    # 6.5 EXPORT INTELLIGENCE STREAM (Immutable Unified Cloud Exporter)
+    # 6.5 EXPORT INTELLIGENCE STREAM
     # ==========================================
     st.write("")
     st.subheader("📥 Export Intelligence Stream")
@@ -500,24 +507,25 @@ try:
         csv_payload = export_df.to_csv(index=False).encode('utf-8-sig')
         filename_stamp = datetime.now().strftime('%Y%m%d')
         
-        # Determine labels dynamically outside the widget to stabilize runtime hashes on Cloud
+        # Fixed explicit download widgets pinned with safe static keys for Cloud stability
         if is_authenticated:
             st.info(f"Premium Target Active: Extracting up to {download_limit} deals based on your active sidebar criteria filters.")
-            btn_label = f"📥 Download Top {len(export_df)} Filtered Deals (CSV)"
-            file_name = f"SerGene_Premium_Extract_{filename_stamp}.csv"
+            st.download_button(
+                label=f"📥 Download Top {len(export_df)} Filtered Deals (CSV)", 
+                data=csv_payload, 
+                file_name=f"SerGene_Premium_Extract_{filename_stamp}.csv", 
+                mime="text/csv",
+                key="premium_csv_download_trigger"
+            )
         else:
             st.warning(f"Free Version Active: Downloads are limited to a maximum of 5 deals. Activate client credentials to unlock up to 20 deals.")
-            btn_label = f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)"
-            file_name = f"SerGene_Preview_Extract_{filename_stamp}.csv"
-
-        # A single fixed widget anchor prevents unmounting or 404 stream cancellations during heavy graph reloads
-        st.download_button(
-            label=btn_label,
-            data=csv_payload,
-            file_name=file_name,
-            mime="text/csv",
-            key="immutable_cloud_csv_exporter_widget"
-        )
+            st.download_button(
+                label=f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)", 
+                data=csv_payload, 
+                file_name=f"SerGene_Preview_Extract_{filename_stamp}.csv", 
+                mime="text/csv",
+                key="free_csv_download_trigger"
+            )
     else:
         st.info("No matching data entries are available to generate an extraction file.")
 
