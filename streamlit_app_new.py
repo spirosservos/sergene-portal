@@ -4,8 +4,8 @@ import numpy as np
 import html
 import re
 import os
-import textwrap  
-from datetime import datetime, timedelta, date  
+import textwrap  # Integrated to break long analytical insights into multi-line tooltips
+from datetime import datetime
 from google import genai 
 import plotly.express as px  
 
@@ -119,19 +119,9 @@ st.markdown("""
 # ==========================================
 @st.cache_data
 def load_and_refine_data():
-    columns_template = [
-        'Row_ID', 'Date', 'Date_Obj', 'DisplayDate', 'ParentModality', 'SubModalities',
-        'CellTypes', 'Platforms', 'TA', 'TargetDisease', 'Stage', 'TotalValueM',
-        'UpfrontRatio', 'DisplayValue', 'PartnerA', 'PartnerB', 'Insight', 'Title',
-        'Summary', 'Link', 'SearchBlob'
-    ]
-    
     if not os.path.exists("sg_intel_assets.arrow"):
-        return pd.DataFrame(columns=columns_template)
-        
+        return pd.DataFrame()
     df = pd.read_feather("sg_intel_assets.arrow") 
-    if df.empty:
-        return pd.DataFrame(columns=columns_template)
     
     if 'Date' in df.columns:
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
@@ -242,24 +232,19 @@ try:
 
     # 1. Select Timeframe & Date Range
     st.sidebar.subheader("📅 Select Timeframe")
-    if df_master.empty:
-        min_db = date.today() - timedelta(days=30)
-        max_db = date.today()
-    else:
-        min_db = df_master['Date_Obj'].min()
-        max_db = df_master['Date_Obj'].max()
-        
-    date_sel = st.sidebar.date_input("Date Range", value=(min_db, max_db), min_value=min_db, max_value=max(max_db, date.today()))
+    min_db = df_master['Date_Obj'].min()
+    max_db = df_master['Date_Obj'].max()
+    date_sel = st.sidebar.date_input("Date Range", value=(min_db, max_db), min_value=min_db, max_value=max(max_db, datetime.now().date()))
 
     st.sidebar.divider()
 
-    # 2. Client Access State System
+    # 2. Client Access (FIXED SYSTEM STATE COUPLING)
     if "is_authenticated" not in st.session_state:
         st.session_state["is_authenticated"] = False
 
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         secret_pass = st.secrets.get("access_password")
-        password_input = st.text_input("Enter Access Code", type="password", key="client_access_password")
+        password_input = st.text_input("Enter Access Code", type="password")
         if secret_pass and password_input == secret_pass:
             st.session_state["is_authenticated"] = True
         elif password_input and password_input != secret_pass:
@@ -272,27 +257,30 @@ try:
             st.caption("Contact Support for Code:")
             st.code("spiros@sergenebio.co.uk")
 
+    # Transfer state status directly into local layout variables
+    is_authenticated = st.session_state["is_authenticated"]
+
     st.sidebar.divider()
 
     # 3. Modality Class
-    existing_parents = df_master['ParentModality'].unique().tolist() if not df_master.empty else []
+    existing_parents = df_master['ParentModality'].unique().tolist()
     sorted_parents_options = [m for m in MODALITY_ORDER if m in existing_parents] + [m for m in existing_parents if m not in MODALITY_ORDER]
     sel_parents = st.sidebar.multiselect("Modality Class", sorted_parents_options)
     
     # 4. Platforms & Delivery Dropdown
-    all_platforms = list(set([p for sub in df_master['Platforms'] for p in sub])) if not df_master.empty else []
+    all_platforms = list(set([p for sub in df_master['Platforms'] for p in sub]))
     sorted_platform_options = [p for p in PLATFORM_ORDER if p in all_platforms] + [p for p in all_platforms if p not in PLATFORM_ORDER]
     sel_platforms = st.sidebar.multiselect("Platforms & Delivery", sorted_platform_options)
 
     # 5. Cell Types Dropdown
-    all_cells = sorted(list(set([c for sub in df_master['CellTypes'] for c in sub]))) if not df_master.empty else []
+    all_cells = sorted(list(set([c for sub in df_master['CellTypes'] for c in sub])))
     sel_cells = st.sidebar.multiselect("Cell Types", all_cells)
 
     # 6. Therapeutic Area
-    sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist())) if not df_master.empty else []
+    sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()))
 
     # 7. Development Stage
-    sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist())) if not df_master.empty else []
+    sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()))
     
     # 8. Search Everything (Deep Scan)
     search_term = st.sidebar.text_input("🔍 Search Everything (Deep Scan)")
@@ -316,44 +304,44 @@ try:
 
     GLOBAL_PREVIEW_LIMIT = 5
     BLUR_LIMIT = 3
-    visible_df = stats_df if st.session_state["is_authenticated"] else stats_df.head(GLOBAL_PREVIEW_LIMIT)
+    visible_df = stats_df if is_authenticated else stats_df.head(GLOBAL_PREVIEW_LIMIT)
 
-# ==========================================
-# 6. DASHBOARD
-# ==========================================
+    # ==========================================
+    # 6. DASHBOARD
+    # ==========================================
     st.title("Strategic Deal Intelligence Stream")
     
     # Process and calculate unique companies based on first word extraction
-    if not stats_df.empty:
-        partners_combined = pd.concat([stats_df['PartnerA'], stats_df['PartnerB']]).dropna()
-        excluded_placeholders = ['n/a', 'nan', '', 'locked', 'unknown']
-        partners_combined = partners_combined[~partners_combined.astype(str).str.lower().isin(excluded_placeholders)]
-        company_first_words = partners_combined.astype(str).apply(lambda x: x.split()[0].lower() if len(x.split()) > 0 else '')
-        unique_companies_count = company_first_words[company_first_words != ''].nunique()
-    else:
-        unique_companies_count = 0
+    partners_combined = pd.concat([stats_df['PartnerA'], stats_df['PartnerB']]).dropna()
+    excluded_placeholders = ['n/a', 'nan', '', 'locked', 'unknown']
+    partners_combined = partners_combined[~partners_combined.astype(str).str.lower().isin(excluded_placeholders)]
+    
+    company_first_words = partners_combined.astype(str).apply(lambda x: x.split()[0].lower() if len(x.split()) > 0 else '')
+    unique_companies_count = company_first_words[company_first_words != ''].nunique()
     
     # 4-Column Layout
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Database Depth", f"{len(stats_df)} Deals")
     m2.metric("Companies Tracked", f"{unique_companies_count} Unique")
-    m3.metric("Market Volume Analysed", f"${stats_df['TotalValueM'].sum()/1000:.1f}B" if not stats_df.empty else "$0.0B")
+    m3.metric("Market Volume Analysed", f"${stats_df['TotalValueM'].sum()/1000:.1f}B")
     
-    valid_r = stats_df[stats_df['UpfrontRatio'] > 0]['UpfrontRatio'] if not stats_df.empty else pd.Series()
+    valid_r = stats_df[stats_df['UpfrontRatio'] > 0]['UpfrontRatio']
     avg_r = valid_r.mean() if not valid_r.empty else 0
     m4.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
 
     st.divider()
 
     # ==========================================
-    # 6.2 CHRONOLOGICAL TIMELINE GRAPHIC (FIXED)
+    # 6.2 CHRONOLOGICAL NEWS GRAPHIC
     # ==========================================
-    limit_count = 30 if st.session_state["is_authenticated"] else 7
-    label_text = f"Top {limit_count} Latest"
+    lookback_days = 30 if is_authenticated else 7
+    label_text = "Month" if is_authenticated else "Week"
     
     if not stats_df.empty:
-        # Fixed: Slicing by count volume instead of strict calendar-day cutoff avoids empty graphs
-        timeline_df = stats_df.sort_values('Date_Obj', ascending=False).head(limit_count).copy()
+        latest_stream_date = stats_df['Date_Obj'].max()
+        cutoff_date = latest_stream_date - pd.Timedelta(days=lookback_days)
+        
+        timeline_df = stats_df[stats_df['Date_Obj'] >= cutoff_date].copy()
         
         if not timeline_df.empty:
             timeline_df = timeline_df.sort_values('Date_Obj', ascending=True)
@@ -367,7 +355,7 @@ try:
             visible_row_ids = visible_df['Row_ID'].values if 'Row_ID' in visible_df.columns else []
             
             for _, r in timeline_df.iterrows():
-                if not st.session_state["is_authenticated"] and r['Row_ID'] not in visible_row_ids:
+                if not is_authenticated and r['Row_ID'] not in visible_row_ids:
                     text_html = (
                         "<span style='font-size:16px; font-family:Arial, sans-serif; color:#64748b; padding:10px;'>"
                         "<b>📅 DATE:</b> %{x}<br><br>"
@@ -400,13 +388,13 @@ try:
                 color='ParentModality',
                 custom_data=['HoverHTML'], 
                 color_discrete_map={
-                    "Gene Therapy/Editing": "#3b82f6",                     
-                    "Cell Therapy": "#10b981",                               
-                    "RNA Therapeutics": "#6366f1",                         
-                    "Immunotherapies": "#ec4899",                          
-                    "Biologics": "#f59e0b",                                
-                    "Small Molecule": "#b91c1c",                            
-                    "Emerging Platforms & Conjugates": "#64748b"            
+                    "Gene Therapy/Editing": "#3b82f6",
+                    "Cell Therapy": "#10b981",
+                    "RNA Therapeutics": "#6366f1",
+                    "Immunotherapies": "#ec4899",
+                    "Biologics": "#f59e0b",
+                    "Small Molecule": "#b91c1c",
+                    "Emerging Platforms & Conjugates": "#64748b"
                 },
                 category_orders={"ParentModality": MODALITY_ORDER}
             )
@@ -418,7 +406,7 @@ try:
             
             fig_timeline.update_layout(
                 title=dict(
-                    text=f"🧬 Latest Deal Intelligence Timeline ({label_text} Filtered Matches)",
+                    text=f"🧬 Latest Deal Intelligence Timeline (Last {label_text} of Activity)",
                     font=dict(size=16, color='#1e293b', weight='bold')
                 ),
                 plot_bgcolor='#ffffff',
@@ -430,42 +418,44 @@ try:
                 yaxis=dict(visible=False, showgrid=False, zeroline=False, showticklabels=False),
                 legend=dict(
                     title=dict(text="Modality Class", font=dict(size=12, weight='bold')),
-                    orientation="h", yanchor="top", y=-0.18, xanchor="center", x=0.5
+                    orientation="h",
+                    yanchor="top",
+                    y=-0.18,
+                    xanchor="center",
+                    x=0.5
                 ),
-                margin=dict(l=10, r=10, t=50, b=80), 
-                height=320 
+                margin=dict(l=10, r=10, t=50, b=80),
+                height=320
             )
+            
             st.plotly_chart(fig_timeline, use_container_width=True)
         else:
-            st.info(f"No transactions recorded during the immediate preview window.")
+            st.info(f"No transactions recorded during the immediate 1-{label_text} timeframe window.")
     else:
         st.info("No transaction coordinates available to map trend visualizations.")
 
     st.divider()
 
     with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
-        if not stats_df.empty:
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.markdown("### **Modality Mix**")
-                st.bar_chart(stats_df['ParentModality'].value_counts(), color="#3b82f6")
-            with c2:
-                st.markdown("### **Therapeutic Focus**")
-                st.bar_chart(stats_df['TA'].value_counts(), color="#10b981")
-            with c3:
-                st.markdown("### **Development Stage**")
-                st.bar_chart(stats_df['Stage'].value_counts(), color="#6366f1")
-        else:
-            st.info("No metric data available to generate trend plots.")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("### **Modality Mix**")
+            st.bar_chart(stats_df['ParentModality'].value_counts(), color="#3b82f6")
+        with c2:
+            st.markdown("### **Therapeutic Focus**")
+            st.bar_chart(stats_df['TA'].value_counts(), color="#10b981")
+        with c3:
+            st.markdown("### **Development Stage**")
+            st.bar_chart(stats_df['Stage'].value_counts(), color="#6366f1")
 
     # AI Section
     st.write("") 
-    if st.session_state["is_authenticated"]:
+    if is_authenticated:
         ai_ready = st.toggle("Enable AI Strategic Analysis Tool", value=False)
         if ai_ready:
             if st.button("🪄 Generate AI Strategic Brief"):
                 with st.status("🤖 Analyzing current deal flow...", expanded=True):
-                    deal_list = "\n".join([f"- {r['PartnerA']} & {r['PartnerB']}: {r['Insight']}" for _, r in stats_df.head(20).iterrows()]) if not stats_df.empty else ""
+                    deal_list = "\n".join([f"- {r['PartnerA']} & {r['PartnerB']}: {r['Insight']}" for _, r in stats_df.head(20).iterrows()])
                     prompt = f"""
                     You are a Senior Biotech Strategic Analyst. Analyze these recent deals:
                     {deal_list}
@@ -487,7 +477,7 @@ try:
     # ==========================================
     st.write("")
     st.subheader("📥 Export Intelligence Stream")
-    download_limit = 20 if st.session_state["is_authenticated"] else 5
+    download_limit = 20 if is_authenticated else 5
     
     if not stats_df.empty:
         target_records = stats_df.head(download_limit)
@@ -512,16 +502,17 @@ try:
         
         export_df = pd.DataFrame(export_data)
         csv_payload = export_df.to_csv(index=False).encode('utf-8-sig')
-        filename_stamp = datetime.now().strftime('%Y%m%d')  
+        filename_stamp = datetime.now().strftime('%Y%m%d')
         
-        if st.session_state["is_authenticated"]:
+        # FIXED: Explicit static widget keys assigned inside layout structures
+        if is_authenticated:
             st.info(f"Premium Target Active: Extracting up to {download_limit} deals based on your active sidebar criteria filters.")
             st.download_button(
                 label=f"📥 Download Top {len(export_df)} Filtered Deals (CSV)", 
                 data=csv_payload, 
                 file_name=f"SerGene_Premium_Extract_{filename_stamp}.csv", 
                 mime="text/csv",
-                key="premium_csv_download_btn"
+                key="cloud_premium_download"
             )
         else:
             st.warning(f"Free Version Active: Downloads are limited to a maximum of 5 deals. Activate client credentials to unlock up to 20 deals.")
@@ -530,7 +521,7 @@ try:
                 data=csv_payload, 
                 file_name=f"SerGene_Preview_Extract_{filename_stamp}.csv", 
                 mime="text/csv",
-                key="preview_csv_download_btn"
+                key="cloud_preview_download"
             )
     else:
         st.info("No matching data entries are available to generate an extraction file.")
@@ -579,15 +570,14 @@ try:
             ), unsafe_allow_html=True)
 
     # --- BLURRED CARDS & CTA BANNER ---
-    if not st.session_state["is_authenticated"]:
-        if not stats_df.empty and len(stats_df) > GLOBAL_PREVIEW_LIMIT:
-            for _, row in stats_df.iloc[GLOBAL_PREVIEW_LIMIT : GLOBAL_PREVIEW_LIMIT + BLUR_LIMIT].iterrows():
-                st.markdown(CARD_HTML.format(
-                    extra_class="blurred-card", d_date=row['DisplayDate'], ta=row['TA'], target="LOCKED",
-                    stage=row['Stage'], p_mod=row['ParentModality'], link="#", insight="LOCKED", 
-                    title="LOCKED", summary="Unlock full access to view details.", tags="", 
-                    value="$$$", r_pct=0, pA="LOCKED", pB="LOCKED"
-                ), unsafe_allow_html=True)
+    if not is_authenticated:
+        for _, row in stats_df.iloc[GLOBAL_PREVIEW_LIMIT : GLOBAL_PREVIEW_LIMIT + BLUR_LIMIT].iterrows():
+            st.markdown(CARD_HTML.format(
+                extra_class="blurred-card", d_date=row['DisplayDate'], ta=row['TA'], target="LOCKED",
+                stage=row['Stage'], p_mod=row['ParentModality'], link="#", insight="LOCKED", 
+                title="LOCKED", summary="Unlock full access to view details.", tags="", 
+                value="$$$", r_pct=0, pA="LOCKED", pB="LOCKED"
+            ), unsafe_allow_html=True)
             
         mailto_link = "mailto:spiros@sergenebio.co.uk?subject=Access Request"
         st.markdown(f"""
