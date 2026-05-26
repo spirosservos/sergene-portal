@@ -243,11 +243,11 @@ try:
 
     st.sidebar.divider()
 
-    # 2. Client Access
+    # 2. Client Access (Cloud Sync Key Protection Applied)
     is_authenticated = False
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         secret_pass = st.secrets.get("access_password")
-        password_input = st.text_input("Enter Access Code", type="password")
+        password_input = st.text_input("Enter Access Code", type="password", key="client_access_field_identity")
         if password_input == secret_pass and secret_pass:
             is_authenticated = True
             st.success("Full Access Granted")
@@ -360,7 +360,6 @@ try:
                         "Activate your access code to unlock real-time dashboard analytics.</span>"
                     )
                 else:
-                    # Inject automated line breaking rules directly to long analysis fields
                     raw_insight = r['Insight'] if r['Insight'] else ""
                     wrapped_insight = "<br>".join(textwrap.wrap(html.escape(raw_insight), width=70))
                     
@@ -379,7 +378,6 @@ try:
                 
             timeline_df['HoverHTML'] = hover_meta_list
             
-            # Secure execution mapping by directly embedding the string inside px.scatter custom_data
             fig_timeline = px.scatter(
                 timeline_df,
                 x='Date_Obj',
@@ -387,18 +385,17 @@ try:
                 color='ParentModality',
                 custom_data=['HoverHTML'], 
                 color_discrete_map={
-                    "Gene Therapy/Editing": "#3b82f6",                     # Vibrant Blue
-                    "Cell Therapy": "#10b981",                             # Emerald Green
-                    "RNA Therapeutics": "#6366f1",                         # Indigo
-                    "Immunotherapies": "#ec4899",                          # Pink
-                    "Biologics": "#f59e0b",                                # Amber
-                    "Small Molecule": "#b91c1c",                           # Deep Crimson/Red (Shifted from teal for distinct isolation)
-                    "Emerging Platforms & Conjugates": "#64748b"            # Slate Grey
+                    "Gene Therapy/Editing": "#3b82f6",                     
+                    "Cell Therapy": "#10b981",                             
+                    "RNA Therapeutics": "#6366f1",                         
+                    "Immunotherapies": "#ec4899",                          
+                    "Biologics": "#f59e0b",                                
+                    "Small Molecule": "#b91c1c",                           
+                    "Emerging Platforms & Conjugates": "#64748b"            
                 },
                 category_orders={"ParentModality": MODALITY_ORDER}
             )
             
-            # Custom tokens mapping avoids mixing labels. <extra></extra> hides trace text boxes
             fig_timeline.update_traces(
                 marker=dict(size=18, opacity=0.85, line=dict(width=1.5, color='#ffffff')),
                 hovertemplate="%{customdata[0]}<extra></extra>" 
@@ -411,40 +408,17 @@ try:
                 ),
                 plot_bgcolor='#ffffff',
                 paper_bgcolor='rgba(0,0,0,0)',
-                
-                # SENSITIVITY TWEAKS: Triggers popup ONLY when cursor is positioned directly on top of the bullet
                 hovermode='closest',
                 hoverdistance=3, 
-                
-                hoverlabel=dict(
-                    bgcolor="#ffffff",
-                    bordercolor="#e2e8f0"
-                ),
-                xaxis=dict(
-                    title=None,
-                    showgrid=True,
-                    gridcolor='#f1f5f9',
-                    tickfont=dict(color='#64748b', size=12),
-                    type='date'
-                ),
-                yaxis=dict(
-                    visible=False, # Hides structural scale identifiers entirely to clear faint background artifacts
-                    showgrid=False,
-                    zeroline=False,
-                    showticklabels=False
-                ),
-                
-                # BULLETPROOF POSITIONING: Shifts horizontal indicator legend to bottom map boundaries to prevent clipping cutoffs
+                hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0"),
+                xaxis=dict(title=None, showgrid=True, gridcolor='#f1f5f9', tickfont=dict(color='#64748b', size=12), type='date'),
+                yaxis=dict(visible=False, showgrid=False, zeroline=False, showticklabels=False),
                 legend=dict(
                     title=dict(text="Modality Class", font=dict(size=12, weight='bold')),
-                    orientation="h",
-                    yanchor="top",
-                    y=-0.18,
-                    xanchor="center",
-                    x=0.5
+                    orientation="h", yanchor="top", y=-0.18, xanchor="center", x=0.5
                 ),
-                margin=dict(l=10, r=10, t=50, b=80), # Expanded bottom tracking boundaries to absorb layout footprint smoothly
-                height=320 # Stepped height up from 260 to give plot components ample workspace area breathing room
+                margin=dict(l=10, r=10, t=50, b=80), 
+                height=320 
             )
             
             st.plotly_chart(fig_timeline, use_container_width=True)
@@ -455,7 +429,10 @@ try:
 
     st.divider()
 
-    with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
+    # ==========================================
+    # 6.3 CORE GRAPHICS ROW (Open by default)
+    # ==========================================
+    with st.expander("📈 Market Trends & Competitive Landscape", expanded=True):
         c1, c2, c3 = st.columns(3)
         with c1:
             st.markdown("### **Modality Mix**")
@@ -492,7 +469,7 @@ try:
         st.warning("🔒 AI Strategic Analysis is a Premium Feature for Clients.")
 
     # ==========================================
-    # 6.5 EXPORT INTELLIGENCE STREAM
+    # 6.5 EXPORT INTELLIGENCE STREAM (Immutable Unified Cloud Exporter)
     # ==========================================
     st.write("")
     st.subheader("📥 Export Intelligence Stream")
@@ -523,22 +500,24 @@ try:
         csv_payload = export_df.to_csv(index=False).encode('utf-8-sig')
         filename_stamp = datetime.now().strftime('%Y%m%d')
         
+        # Determine labels dynamically outside the widget to stabilize runtime hashes on Cloud
         if is_authenticated:
             st.info(f"Premium Target Active: Extracting up to {download_limit} deals based on your active sidebar criteria filters.")
-            st.download_button(
-                label=f"📥 Download Top {len(export_df)} Filtered Deals (CSV)", 
-                data=csv_payload, 
-                file_name=f"SerGene_Premium_Extract_{filename_stamp}.csv", 
-                mime="text/csv"
-            )
+            btn_label = f"📥 Download Top {len(export_df)} Filtered Deals (CSV)"
+            file_name = f"SerGene_Premium_Extract_{filename_stamp}.csv"
         else:
             st.warning(f"Free Version Active: Downloads are limited to a maximum of 5 deals. Activate client credentials to unlock up to 20 deals.")
-            st.download_button(
-                label=f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)", 
-                data=csv_payload, 
-                file_name=f"SerGene_Preview_Extract_{filename_stamp}.csv", 
-                mime="text/csv"
-            )
+            btn_label = f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)"
+            file_name = f"SerGene_Preview_Extract_{filename_stamp}.csv"
+
+        # A single fixed widget anchor prevents unmounting or 404 stream cancellations during heavy graph reloads
+        st.download_button(
+            label=btn_label,
+            data=csv_payload,
+            file_name=file_name,
+            mime="text/csv",
+            key="immutable_cloud_csv_exporter_widget"
+        )
     else:
         st.info("No matching data entries are available to generate an extraction file.")
 
