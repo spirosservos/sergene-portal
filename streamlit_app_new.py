@@ -238,13 +238,13 @@ try:
 
     st.sidebar.divider()
 
-    # 2. Client Access (FIXED SYSTEM STATE COUPLING)
+    # 2. Client Access Secure Memory Setup (Ensures stability across cloud hot-reloads)
     if "is_authenticated" not in st.session_state:
         st.session_state["is_authenticated"] = False
 
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         secret_pass = st.secrets.get("access_password")
-        password_input = st.text_input("Enter Access Code", type="password")
+        password_input = st.text_input("Enter Access Code", type="password", key="access_credential_input")
         if secret_pass and password_input == secret_pass:
             st.session_state["is_authenticated"] = True
         elif password_input and password_input != secret_pass:
@@ -257,7 +257,7 @@ try:
             st.caption("Contact Support for Code:")
             st.code("spiros@sergenebio.co.uk")
 
-    # Transfer state status directly into local layout variables
+    # Read tracking variable directly from persistent storage wrapper
     is_authenticated = st.session_state["is_authenticated"]
 
     st.sidebar.divider()
@@ -347,6 +347,7 @@ try:
             timeline_df = timeline_df.sort_values('Date_Obj', ascending=True)
             timeline_df['stack_y'] = timeline_df.groupby('Date_Obj').cumcount() + 1
             
+            # Formulate categorical matching lists to freeze colors tightly to legend items
             current_available_order = [o for o in MODALITY_ORDER if o in timeline_df['ParentModality'].unique()]
             timeline_df['ParentModality'] = pd.Categorical(timeline_df['ParentModality'], categories=current_available_order, ordered=True)
             timeline_df = timeline_df.sort_values(['Date_Obj', 'ParentModality'])
@@ -396,7 +397,8 @@ try:
                     "Small Molecule": "#b91c1c",
                     "Emerging Platforms & Conjugates": "#64748b"
                 },
-                category_orders={"ParentModality": MODALITY_ORDER}
+                # FIXED: Force layout to follow active items list to avoid WebGL rendering lock up loops
+                category_orders={"ParentModality": current_available_order}
             )
             
             fig_timeline.update_traces(
@@ -504,7 +506,7 @@ try:
         csv_payload = export_df.to_csv(index=False).encode('utf-8-sig')
         filename_stamp = datetime.now().strftime('%Y%m%d')
         
-        # FIXED: Explicit static widget keys assigned inside layout structures
+        # FIXED: Explicit static keys assigned to prevent WebSockets download interruption loops
         if is_authenticated:
             st.info(f"Premium Target Active: Extracting up to {download_limit} deals based on your active sidebar criteria filters.")
             st.download_button(
@@ -512,7 +514,7 @@ try:
                 data=csv_payload, 
                 file_name=f"SerGene_Premium_Extract_{filename_stamp}.csv", 
                 mime="text/csv",
-                key="cloud_premium_download"
+                key="cloud_premium_download_button"
             )
         else:
             st.warning(f"Free Version Active: Downloads are limited to a maximum of 5 deals. Activate client credentials to unlock up to 20 deals.")
@@ -521,7 +523,7 @@ try:
                 data=csv_payload, 
                 file_name=f"SerGene_Preview_Extract_{filename_stamp}.csv", 
                 mime="text/csv",
-                key="cloud_preview_download"
+                key="cloud_preview_download_button"
             )
     else:
         st.info("No matching data entries are available to generate an extraction file.")
