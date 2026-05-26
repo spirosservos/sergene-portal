@@ -253,20 +253,21 @@ try:
 
     st.sidebar.divider()
 
-    # 2. Client Access (FIXED WITH SESSION_STATE TRACKING)
+    # 2. Client Access State System
     if "is_authenticated" not in st.session_state:
         st.session_state["is_authenticated"] = False
 
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         secret_pass = st.secrets.get("access_password")
-        password_input = st.text_input("Enter Access Code", type="password")
+        password_input = st.text_input("Enter Access Code", type="password", key="client_access_password")
         if secret_pass and password_input == secret_pass:
             st.session_state["is_authenticated"] = True
-            st.success("Full Access Granted")
         elif password_input and password_input != secret_pass:
             st.session_state["is_authenticated"] = False
 
-        if not st.session_state["is_authenticated"]:
+        if st.session_state["is_authenticated"]:
+            st.success("Full Access Granted")
+        else:
             st.markdown("---")
             st.caption("Contact Support for Code:")
             st.code("spiros@sergenebio.co.uk")
@@ -345,15 +346,14 @@ try:
     st.divider()
 
     # ==========================================
-    # 6.2 CHRONOLOGICAL NEWS GRAPHIC
+    # 6.2 CHRONOLOGICAL TIMELINE GRAPHIC (FIXED)
     # ==========================================
-    lookback_days = 30 if st.session_state["is_authenticated"] else 7
-    label_text = "Month" if st.session_state["is_authenticated"] else "Week"
+    limit_count = 30 if st.session_state["is_authenticated"] else 7
+    label_text = f"Top {limit_count} Latest"
     
     if not stats_df.empty:
-        global_latest_date = df_master['Date_Obj'].max()
-        cutoff_date = global_latest_date - timedelta(days=lookback_days)
-        timeline_df = stats_df[stats_df['Date_Obj'] >= cutoff_date].copy()
+        # Fixed: Slicing by count volume instead of strict calendar-day cutoff avoids empty graphs
+        timeline_df = stats_df.sort_values('Date_Obj', ascending=False).head(limit_count).copy()
         
         if not timeline_df.empty:
             timeline_df = timeline_df.sort_values('Date_Obj', ascending=True)
@@ -418,7 +418,7 @@ try:
             
             fig_timeline.update_layout(
                 title=dict(
-                    text=f"🧬 Latest Deal Intelligence Timeline (Last {label_text} of Activity)",
+                    text=f"🧬 Latest Deal Intelligence Timeline ({label_text} Filtered Matches)",
                     font=dict(size=16, color='#1e293b', weight='bold')
                 ),
                 plot_bgcolor='#ffffff',
@@ -437,7 +437,7 @@ try:
             )
             st.plotly_chart(fig_timeline, use_container_width=True)
         else:
-            st.info(f"No transactions recorded during the immediate 1-{label_text} timeframe window.")
+            st.info(f"No transactions recorded during the immediate preview window.")
     else:
         st.info("No transaction coordinates available to map trend visualizations.")
 
@@ -514,7 +514,6 @@ try:
         csv_payload = export_df.to_csv(index=False).encode('utf-8-sig')
         filename_stamp = datetime.now().strftime('%Y%m%d')  
         
-        # FIXED IF/ELSE BLOCK WITH STATIC EXPLICIT KEYS Added
         if st.session_state["is_authenticated"]:
             st.info(f"Premium Target Active: Extracting up to {download_limit} deals based on your active sidebar criteria filters.")
             st.download_button(
