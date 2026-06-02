@@ -29,15 +29,15 @@ else:
 # Reconfigured Modality Classes aligned to strategic hierarchy
 MODALITY_GROUPS = {
     "Gene Therapy/Editing": ["CRISPR", "Base Editing", "Prime Editing", "Gene Editing", "Gene Therapy", "AAV", "Lentivirus", "Lenti", "Alternative & General Vectors"],
-    "Cell Therapy": ["CAR-T", "TCR", "TILs", "NK Cells", "Tregs", "MSCs", "iPSCs", "gamma delta T cells", "γδ T cells", "Cell Therapy"],
+    "Cell Therapy": ["CAR-T", "TCR", "TILs", "NK Cells", "Tregs", "MSCs", "iPSCs", "GammaDelta"],
     "RNA Therapeutics": ["mRNA", "siRNA", "RNAi", "miRNA", "ASO", "Antisense", "Aptamer", "RNA", "ASO / Antisense"],
     "Immunotherapies": ["Oncolytic Virus", "Immuno-oncology"],
     "Biologics": ["Antibody", "Bispecific", "ADC", "Multi-specific", "Peptide", "Biologics", "Exosomes"],
     "Small Molecule": ["Small Molecule", "Protein Degrader", "Oral"]
 }
 
-# Strict filter to classify cell types versus engineering/delivery platforms
-CELL_THERAPY_TAGS = ["CAR-T", "TCR", "TILs", "NK Cells", "Tregs", "MSCs", "iPSCs", "gamma delta T cells", "γδ T cells", "Cell Therapy"]
+# Core definition array for specific target cell selections (Generic "Cell Therapy" removed)
+CELL_THERAPY_TAGS = ["CAR-T", "TCR", "TILs", "NK Cells", "Tregs", "MSCs", "iPSCs", "GammaDelta"]
 
 # Strict explicit ordering arrays for filters to avoid random alphabetical sorting
 MODALITY_ORDER = [
@@ -95,6 +95,7 @@ st.markdown("""
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
     }
     .blurred-card { filter: blur(8px); opacity: 0.5; pointer-events: none; }
+    .blur-financials { filter: blur(5px); opacity: 0.3; pointer-events: none; user-select: none; }
     .date-badge { color: #64748b; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; margin-bottom: 0.75rem; }
     .parent-tag {
         background-color: #eff6ff; color: #1e40af; padding: 0.35rem 0.85rem;
@@ -138,18 +139,47 @@ def load_and_refine_data():
         'Multi-specific', 'Nanoparticle', 'MSCs', 'iPSCs', 'gamma delta T cells', 'γδ T cells'
     ]
     
+    tech_columns_clean = [c.strip().lower() for c in TECH_COLUMNS]
+    
     refined_rows = []
     for _, row in df.iterrows():
         raw_row_flags = []
         for col_name in row.index:
-            if col_name in TECH_COLUMNS:
-                val = row[col_name]
-                try:
-                    if float(val) > 0:
-                        raw_row_flags.append(col_name)
-                except:
-                    if str(val).lower() in ['yes', 'y', 'true', '1']:
-                        raw_row_flags.append(col_name)
+            col_name_clean = str(col_name).strip().lower()
+            
+            val = row[col_name]
+            
+            # Avoid truth value ambiguity errors if an element is non-scalar (list or array)
+            if isinstance(val, (list, np.ndarray)):
+                is_positive_signal = any(
+                    str(i).strip().lower() in ['yes', 'y', 'true', '1'] or 
+                    (isinstance(i, (int, float)) and i > 0) 
+                    for i in val if pd.notna(i)
+                )
+            else:
+                if pd.isna(val):
+                    continue
+                
+                clean_val = str(val).strip().lower()
+                is_positive_signal = False
+                if clean_val in ['yes', 'y', 'true', '1']:
+                    is_positive_signal = True
+                else:
+                    try:
+                        if float(clean_val) > 0:
+                            is_positive_signal = True
+                    except (ValueError, TypeError):
+                        pass
+            
+            if is_positive_signal:
+                # Intelligent semantic interceptor checks for custom row array mappings
+                if "nk" in col_name_clean:
+                    raw_row_flags.append("NK Cells")
+                elif any(x in col_name_clean for x in ["gamma", "delta", "γ", "δ"]):
+                    raw_row_flags.append("gamma delta T cells")
+                elif col_name_clean in tech_columns_clean:
+                    matched_idx = tech_columns_clean.index(col_name_clean)
+                    raw_row_flags.append(TECH_COLUMNS[matched_idx])
 
         tags = []
         has_specific_viral = any(x in raw_row_flags for x in ['AAV', 'Lentivirus', 'Lenti'])
@@ -165,7 +195,7 @@ def load_and_refine_data():
             elif "ipsc" in flag.lower():
                 tags.append("iPSCs")
             elif any(x in flag.lower() for x in ["gamma", "delta", "γ", "δ"]):
-                tags.append("γδ T cells")
+                tags.append("GammaDelta")
             else:
                 tags.append(flag)
 
@@ -224,6 +254,37 @@ def load_and_refine_data():
 # 5. UI, AUTHENTICATION & FILTERING
 # ==========================================
 try:
+    # Centralized Internal Audit Logging System
+    def log_audit_event(client_tag, action, details=""):
+        log_file = "sergene_audit_log.csv"
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Pull system environment network origins securely
+        ip_address = "Unknown"
+        try:
+            if hasattr(st, "context") and st.context.ip_address:
+                ip_address = st.context.ip_address
+            elif hasattr(st, "context") and st.context.headers:
+                ip_address = st.context.headers.get("x-forwarded-for", st.context.headers.get("remote-addr", "Unknown"))
+        except Exception:
+            pass
+            
+        log_entry = pd.DataFrame([{
+            "Timestamp": timestamp,
+            "Client_Tag": client_tag,
+            "Action": action,
+            "IP_Address": ip_address,
+            "Details": details
+        }])
+        
+        try:
+            if not os.path.exists(log_file):
+                log_entry.to_csv(log_file, index=False)
+            else:
+                log_entry.to_csv(log_file, mode='a', header=False, index=False)
+        except Exception:
+            pass 
+
     df_master = load_and_refine_data()
     df_master = df_master.dropna(subset=['Date_Obj']).sort_values('Date_Obj', ascending=False)
 
@@ -238,27 +299,44 @@ try:
 
     st.sidebar.divider()
 
-    # 2. Client Access Secure Memory Setup (Ensures stability across cloud hot-reloads)
+    # Client Access Secure Memory Setup 
+    if "download_count" not in st.session_state:
+        st.session_state["download_count"] = 0
     if "is_authenticated" not in st.session_state:
         st.session_state["is_authenticated"] = False
+    if "active_client_tag" not in st.session_state:
+        st.session_state["active_client_tag"] = "Guest"
 
     with st.sidebar.expander("🔑 Client Access", expanded=False):
-        secret_pass = st.secrets.get("access_password")
+        raw_keys = st.secrets.get("client_keys", "")
+        valid_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+        
+        legacy_pass = st.secrets.get("access_password")
+        if legacy_pass:
+            valid_keys.append(legacy_pass)
+
         password_input = st.text_input("Enter Access Code", type="password", key="access_credential_input")
-        if secret_pass and password_input == secret_pass:
-            st.session_state["is_authenticated"] = True
-        elif password_input and password_input != secret_pass:
+        
+        if password_input in valid_keys and password_input != "":
+            if not st.session_state["is_authenticated"] or st.session_state["active_client_tag"] != password_input:
+                st.session_state["is_authenticated"] = True
+                st.session_state["active_client_tag"] = password_input
+                log_audit_event(password_input, "Login Success", "Client authenticated via sidebar.")
+        elif password_input:
+            if st.session_state["is_authenticated"]:
+                log_audit_event(st.session_state["active_client_tag"], "De-authenticated", "Incorrect key layer override attempt.")
             st.session_state["is_authenticated"] = False
+            st.session_state["active_client_tag"] = "Guest"
 
         if st.session_state["is_authenticated"]:
-            st.success("Full Access Granted")
+            st.success("Access Verified")
         else:
             st.markdown("---")
             st.caption("Contact Support for Code:")
             st.code("spiros@sergenebio.co.uk")
 
-    # Read tracking variable directly from persistent storage wrapper
     is_authenticated = st.session_state["is_authenticated"]
+    client_tag = st.session_state["active_client_tag"]
 
     st.sidebar.divider()
 
@@ -272,9 +350,8 @@ try:
     sorted_platform_options = [p for p in PLATFORM_ORDER if p in all_platforms] + [p for p in all_platforms if p not in PLATFORM_ORDER]
     sel_platforms = st.sidebar.multiselect("Platforms & Delivery", sorted_platform_options)
 
-    # 5. Cell Types Dropdown
-    all_cells = sorted(list(set([c for sub in df_master['CellTypes'] for c in sub])))
-    sel_cells = st.sidebar.multiselect("Cell Types", all_cells)
+    # 5. Cell Types Dropdown 
+    sel_cells = st.sidebar.multiselect("Cell Types", CELL_THERAPY_TAGS)
 
     # 6. Therapeutic Area
     sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()))
@@ -284,6 +361,27 @@ try:
     
     # 8. Search Everything (Deep Scan)
     search_term = st.sidebar.text_input("🔍 Search Everything (Deep Scan)")
+
+    # ==========================================
+    # HIDDEN ADMIN AUDIT LOG DOWNLOAD (OPTION 1)
+    # ==========================================
+    if is_authenticated and client_tag == "SerGenePilot2026":
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🛡️ System Administration")
+        if os.path.exists("sergene_audit_log.csv"):
+            with open("sergene_audit_log.csv", "rb") as f:
+                st.sidebar.download_button(
+                    label="📥 Download Master Audit Logs",
+                    data=f,
+                    file_name="Master_Security_Audit_Log.csv",
+                    mime="text/csv",
+                    key="admin_audit_log_download_btn"
+                )
+        else:
+            st.sidebar.caption("No log data recorded yet in this server session.")
+
+    # --- FILTERING ENGINE ---
+    stats_df = df_master.copy()
 
     # --- FILTERING ENGINE ---
     stats_df = df_master.copy()
@@ -367,11 +465,13 @@ try:
                     raw_insight = r['Insight'] if r['Insight'] else ""
                     wrapped_insight = "<br>".join(textwrap.wrap(html.escape(raw_insight), width=70))
                     
+                    chart_value = html.escape(r['DisplayValue']) if is_authenticated else "🔒 LOCKED (Premium Code Required)"
+                    
                     text_html = (
                         f"<span style='font-size:15px; font-family:Arial, sans-serif; line-height:1.6; color:#0f172a;'>"
                         f"<b style='color:#2563eb;'>📅 DATE:</b> {r['DisplayDate']}<br>"
                         f"<b style='color:#059669;'>🤝 PARTNERS:</b> {html.escape(r['PartnerA'])} & {html.escape(r['PartnerB'])}<br>"
-                        f"<b style='color:#d97706;'>💰 VALUE:</b> {html.escape(r['DisplayValue'])}<br>"
+                        f"<b style='color:#d97706;'>💰 VALUE:</b> {chart_value}<br>"
                         f"<b style='color:#7c3aed;'>🧬 CLASS:</b> {html.escape(r['ParentModality'])}<br>"
                         f"<b style='color:#0284c7;'>🎯 TARGET:</b> {html.escape(r['TargetDisease'])}<br><br>"
                         f"<b style='color:#dc2626;'>💡 STRATEGIC INSIGHT:</b><br>"
@@ -397,7 +497,6 @@ try:
                     "Small Molecule": "#b91c1c",
                     "Emerging Platforms & Conjugates": "#64748b"
                 },
-                # FIXED: Force layout to follow active items list to avoid WebGL rendering lock up loops
                 category_orders={"ParentModality": current_available_order}
             )
             
@@ -480,51 +579,77 @@ try:
     st.write("")
     st.subheader("📥 Export Intelligence Stream")
     download_limit = 20 if is_authenticated else 5
+    DOWNLOAD_MAX_SESSION_CAP = 5 
     
     if not stats_df.empty:
-        target_records = stats_df.head(download_limit)
-        
-        export_data = {
-            'Date': target_records['DisplayDate'],
-            'Modality Class': target_records['ParentModality'],
-            'Platforms & Delivery': target_records['Platforms'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x),
-            'Cell Types': target_records['CellTypes'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x),
-            'Therapeutic Area': target_records['TA'],
-            'Target Disease': target_records['TargetDisease'],
-            'Development Stage': target_records['Stage'],
-            'Deal Value': target_records['DisplayValue'],
-            'Upfront Ratio': target_records['UpfrontRatio'].round(2), 
-            'Partner A': target_records['PartnerA'],
-            'Partner B': target_records['PartnerB'],
-            'Insight': target_records['Insight'],
-            'Title': target_records['Title'],
-            'Summary': target_records['Summary'],
-            'Link': target_records['Link']
-        }
-        
-        export_df = pd.DataFrame(export_data)
-        csv_payload = export_df.to_csv(index=False).encode('utf-8-sig')
-        filename_stamp = datetime.now().strftime('%Y%m%d')
-        
-        # FIXED: Explicit static keys assigned to prevent WebSockets download interruption loops
-        if is_authenticated:
-            st.info(f"Premium Target Active: Extracting up to {download_limit} deals based on your active sidebar criteria filters.")
-            st.download_button(
-                label=f"📥 Download Top {len(export_df)} Filtered Deals (CSV)", 
-                data=csv_payload, 
-                file_name=f"SerGene_Premium_Extract_{filename_stamp}.csv", 
-                mime="text/csv",
-                key="cloud_premium_download_button"
-            )
+        if is_authenticated and st.session_state["download_count"] >= DOWNLOAD_MAX_SESSION_CAP:
+            st.error("⚠️ Session Export Limit Reached. Bulk scraping is restricted to maintain asset security. Please reach out directly if your contract requires complete raw file endpoints.")
         else:
-            st.warning(f"Free Version Active: Downloads are limited to a maximum of 5 deals. Activate client credentials to unlock up to 20 deals.")
-            st.download_button(
-                label=f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)", 
-                data=csv_payload, 
-                file_name=f"SerGene_Preview_Extract_{filename_stamp}.csv", 
-                mime="text/csv",
-                key="cloud_preview_download_button"
-            )
+            target_records = stats_df.head(download_limit)
+            
+            if is_authenticated:
+                export_data = {
+                    'Date': target_records['DisplayDate'],
+                    'Modality Class': target_records['ParentModality'],
+                    'Platforms & Delivery': target_records['Platforms'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x),
+                    'Cell Types': target_records['CellTypes'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x),
+                    'Therapeutic Area': target_records['TA'],
+                    'Target Disease': target_records['TargetDisease'],
+                    'Development Stage': target_records['Stage'],
+                    'Deal Value': target_records['DisplayValue'],
+                    'Upfront Ratio': target_records['UpfrontRatio'].round(2), 
+                    'Partner A': target_records['PartnerA'],
+                    'Partner B': target_records['PartnerB'],
+                    'Insight': target_records['Insight'],
+                    'Title': target_records['Title'],
+                    'Summary': target_records['Summary'],
+                    'Corporate License Audit Stamp': f"Licensed to SerGene ID: {client_tag} | Verification Stamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                }
+            else:
+                export_data = {
+                    'Date': target_records['DisplayDate'],
+                    'Modality Class': target_records['ParentModality'],
+                    'Platforms & Delivery': target_records['Platforms'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x),
+                    'Cell Types': target_records['CellTypes'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x),
+                    'Therapeutic Area': target_records['TA'],
+                    'Target Disease': target_records['TargetDisease'],
+                    'Development Stage': target_records['Stage'],
+                    'Partner A': target_records['PartnerA'],
+                    'Partner B': target_records['PartnerB'],
+                    'Title': target_records['Title'],
+                    'Deal Value': "🔒 LOCKED (Access Code Required)",
+                    'Upfront Ratio': "🔒 LOCKED", 
+                    'Insight': "🔒 LOCKED (Access Code Required)",
+                    'Summary': "🔒 LOCKED (Access Code Required)",
+                    'Corporate License Audit Stamp': "Free Tier Export"
+                }
+            
+            export_df = pd.DataFrame(export_data)
+            csv_payload = export_df.to_csv(index=False).encode('utf-8-sig')
+            filename_stamp = datetime.now().strftime('%Y%m%d')
+            
+            if is_authenticated:
+                st.info(f"Premium Export Active: Extracting up to {download_limit} deals. Remaining session downloads: {DOWNLOAD_MAX_SESSION_CAP - st.session_state['download_count']}")
+                
+                if st.download_button(
+                    label=f"📥 Download Top {len(export_df)} Filtered Deals (CSV)", 
+                    data=csv_payload, 
+                    file_name=f"SerGene_Premium_Extract_{filename_stamp}.csv", 
+                    mime="text/csv",
+                    key="cloud_premium_download_button"
+                ):
+                    st.session_state["download_count"] += 1
+                    log_audit_event(client_tag, "CSV Export Executed", f"Extracted {len(export_df)} items. Session Count: {st.session_state['download_count']}")
+            else:
+                st.warning(f"Free Version Active: Downloads are limited to a maximum of 5 deals.")
+                if st.download_button(
+                    label=f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)", 
+                    data=csv_payload, 
+                    file_name=f"SerGene_Preview_Extract_{filename_stamp}.csv", 
+                    mime="text/csv",
+                    key="cloud_preview_download_button"
+                ):
+                    log_audit_event("Guest", "Preview Export Executed", "Downloaded unauthenticated preview set.")
     else:
         st.info("No matching data entries are available to generate an extraction file.")
 
@@ -547,9 +672,11 @@ try:
             </div>
             <div style="flex: 1; border-left: 2px solid #f1f5f9; padding-left: 2.5rem;">
                 <p style="font-size: 0.7rem; color: #94a3b8;">DEAL VALUE</p>
-                <p style="font-size: 1.85rem; font-weight: 900; color: #059669;">{value}</p>
-                <p style="font-size: 0.75rem; color: #059669; font-weight: 800; margin-bottom: 0;">{r_pct}% UPFRONT</p>
-                <div class="ratio-bar-container"><div style="height:100%; width:{r_pct}%; background:#10b981;"></div></div>
+                <div class="{blur_financials_class}">
+                    <p style="font-size: 1.85rem; font-weight: 900; color: #059669;">{value}</p>
+                    <p style="font-size: 0.75rem; color: #059669; font-weight: 800; margin-bottom: 0;">{r_pct}% UPFRONT</p>
+                    <div class="ratio-bar-container"><div style="height:100%; width:{r_pct}%; background:#10b981;"></div></div>
+                </div>
                 <p style="font-size: 0.7rem; color: #94a3b8; margin-top:1rem;">PARTNERS</p>
                 <p style="font-weight: 800;">{pA}</p><p style="color: #64748b;">{pB}</p>
             </div>
@@ -560,6 +687,8 @@ try:
     if stats_df.empty:
         st.info("No matching deals found for the current filters.")
     else:
+        financial_blur = "" if is_authenticated else "blur-financials"
+        
         for _, row in visible_df.iterrows():
             tags_h = "".join([f'<span class="tag">{html.escape(t)}</span>' for t in row['SubModalities']])
             r_val = int(round(row['UpfrontRatio'] * 100))
@@ -568,7 +697,8 @@ try:
                 stage=row['Stage'], p_mod=row['ParentModality'], link=row['Link'], 
                 insight=html.escape(row['Insight']), title=html.escape(row['Title']), 
                 summary=html.escape(row['Summary']), tags=tags_h, value=row['DisplayValue'], 
-                r_pct=r_val, pA=row['PartnerA'], pB=row['PartnerB']
+                r_pct=r_val, pA=row['PartnerA'], pB=row['PartnerB'],
+                blur_financials_class=financial_blur
             ), unsafe_allow_html=True)
 
     # --- BLURRED CARDS & CTA BANNER ---
@@ -578,7 +708,8 @@ try:
                 extra_class="blurred-card", d_date=row['DisplayDate'], ta=row['TA'], target="LOCKED",
                 stage=row['Stage'], p_mod=row['ParentModality'], link="#", insight="LOCKED", 
                 title="LOCKED", summary="Unlock full access to view details.", tags="", 
-                value="$$$", r_pct=0, pA="LOCKED", pB="LOCKED"
+                value="$$$", r_pct=0, pA="LOCKED", pB="LOCKED",
+                blur_financials_class=""  
             ), unsafe_allow_html=True)
             
         mailto_link = "mailto:spiros@sergenebio.co.uk?subject=Access Request"
