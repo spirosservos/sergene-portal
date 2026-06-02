@@ -259,13 +259,20 @@ try:
         log_file = "sergene_audit_log.csv"
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Pull system environment network origins securely
         ip_address = "Unknown"
         try:
-            if hasattr(st, "context") and st.context.ip_address:
+            # 1. Always inspect HTTP headers first to bypass the cloud proxy layer
+            if hasattr(st, "context") and st.context.headers:
+                x_forwarded = st.context.headers.get("x-forwarded-for")
+                if x_forwarded:
+                    # If multiple proxies exist, the client public IP is always the first element
+                    ip_address = x_forwarded.split(",")[0].strip()
+                else:
+                    ip_address = st.context.headers.get("remote-addr", "Unknown")
+            
+            # 2. Fallback to standard context string if headers are vacant
+            elif hasattr(st, "context") and st.context.ip_address:
                 ip_address = st.context.ip_address
-            elif hasattr(st, "context") and st.context.headers:
-                ip_address = st.context.headers.get("x-forwarded-for", st.context.headers.get("remote-addr", "Unknown"))
         except Exception:
             pass
             
