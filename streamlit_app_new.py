@@ -259,18 +259,15 @@ try:
         log_file = "sergene_audit_log.csv"
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
+        # Pull system environment network origins securely
         ip_address = "Unknown"
         try:
-            # 1. Always inspect HTTP headers first to bypass the cloud proxy layer
             if hasattr(st, "context") and st.context.headers:
                 x_forwarded = st.context.headers.get("x-forwarded-for")
                 if x_forwarded:
-                    # If multiple proxies exist, the client public IP is always the first element
                     ip_address = x_forwarded.split(",")[0].strip()
                 else:
                     ip_address = st.context.headers.get("remote-addr", "Unknown")
-            
-            # 2. Fallback to standard context string if headers are vacant
             elif hasattr(st, "context") and st.context.ip_address:
                 ip_address = st.context.ip_address
         except Exception:
@@ -369,10 +366,8 @@ try:
     # 8. Search Everything (Deep Scan)
     search_term = st.sidebar.text_input("🔍 Search Everything (Deep Scan)")
 
-    # ==========================================
     # HIDDEN ADMIN AUDIT LOG DOWNLOAD (OPTION 1)
-    # ==========================================
-    if is_authenticated and client_tag == "SerGenePilot2026":
+    if is_authenticated and client_tag == "SPIROS-VIP":
         st.sidebar.markdown("---")
         st.sidebar.subheader("🛡️ System Administration")
         if os.path.exists("sergene_audit_log.csv"):
@@ -390,9 +385,6 @@ try:
     # --- FILTERING ENGINE ---
     stats_df = df_master.copy()
 
-    # --- FILTERING ENGINE ---
-    stats_df = df_master.copy()
-
     if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
         stats_df = stats_df[(stats_df['Date_Obj'] >= date_sel[0]) & (stats_df['Date_Obj'] <= date_sel[1])]
     
@@ -402,7 +394,7 @@ try:
     if len(sel_cells) > 0:
         stats_df = stats_df[stats_df['CellTypes'].apply(lambda x: any(s in x for s in sel_cells))]
     if len(sel_tas) > 0: stats_df = stats_df[stats_df['TA'].isin(sel_tas)]
-    if len(sel_stages) > 0: stats_df = stats_df[stats_df['Stage'].isin(sel_stages)]
+    if len(sel_stages) > 0: stats_df = stats_df[stats_df['Stage'].isin(stats_df['Stage'])]
     
     if search_term:
         stats_df = stats_df[stats_df['SearchBlob'].str.contains(search_term.lower(), na=False)]
@@ -437,16 +429,10 @@ try:
     st.divider()
 
     # ==========================================
-    # 6.2 CHRONOLOGICAL NEWS GRAPHIC
+    # 6.2 CHRONOLOGICAL NEWS GRAPHIC (DYNAMIC SCALING FIXED)
     # ==========================================
-    lookback_days = 30 if is_authenticated else 7
-    label_text = "Month" if is_authenticated else "Week"
-    
     if not stats_df.empty:
-        latest_stream_date = stats_df['Date_Obj'].max()
-        cutoff_date = latest_stream_date - pd.Timedelta(days=lookback_days)
-        
-        timeline_df = stats_df[stats_df['Date_Obj'] >= cutoff_date].copy()
+        timeline_df = stats_df.copy()
         
         if not timeline_df.empty:
             timeline_df = timeline_df.sort_values('Date_Obj', ascending=True)
@@ -458,21 +444,13 @@ try:
             timeline_df = timeline_df.sort_values(['Date_Obj', 'ParentModality'])
 
             hover_meta_list = []
-            visible_row_ids = visible_df['Row_ID'].values if 'Row_ID' in visible_df.columns else []
-            
             for _, r in timeline_df.iterrows():
-                if not is_authenticated and r['Row_ID'] not in visible_row_ids:
-                    text_html = (
-                        "<span style='font-size:16px; font-family:Arial, sans-serif; color:#64748b; padding:10px;'>"
-                        "<b>📅 DATE:</b> %{x}<br><br>"
-                        "<b style='color:#ef4444;'>🔒 STATUS: Premium Client Account Required</b><br>"
-                        "Activate your access code to unlock real-time dashboard analytics.</span>"
-                    )
+                if not is_authenticated:
+                    text_html = "" 
                 else:
                     raw_insight = r['Insight'] if r['Insight'] else ""
                     wrapped_insight = "<br>".join(textwrap.wrap(html.escape(raw_insight), width=70))
-                    
-                    chart_value = html.escape(r['DisplayValue']) if is_authenticated else "🔒 LOCKED (Premium Code Required)"
+                    chart_value = html.escape(r['DisplayValue'])
                     
                     text_html = (
                         f"<span style='font-size:15px; font-family:Arial, sans-serif; line-height:1.6; color:#0f172a;'>"
@@ -507,14 +485,26 @@ try:
                 category_orders={"ParentModality": current_available_order}
             )
             
-            fig_timeline.update_traces(
-                marker=dict(size=18, opacity=0.85, line=dict(width=1.5, color='#ffffff')),
-                hovertemplate="%{customdata[0]}<extra></extra>" 
-            )
+            # SPACING OPTIMIZATION 1: Marker dot diameters reduced slightly from 18px down to 14px to create padding margins
+            if is_authenticated:
+                fig_timeline.update_traces(
+                    marker=dict(size=14, opacity=0.85, line=dict(width=1.5, color='#ffffff')),
+                    hovertemplate="%{customdata[0]}<extra></extra>" 
+                )
+            else:
+                fig_timeline.update_traces(
+                    marker=dict(size=14, opacity=0.85, line=dict(width=1.5, color='#ffffff')),
+                    hoverinfo="skip",
+                    hovertemplate=None
+                )
+            
+            # SPACING OPTIMIZATION 2: Calculate dynamic pixel canvas scale proportional to peak density data counts
+            max_stack = int(timeline_df['stack_y'].max()) if not timeline_df.empty else 1
+            dynamic_height = max(380, 260 + (max_stack * 45))
             
             fig_timeline.update_layout(
                 title=dict(
-                    text=f"🧬 Latest Deal Intelligence Timeline (Last {label_text} of Activity)",
+                    text="🧬 Interactive Deal Intelligence Master Timeline",
                     font=dict(size=16, color='#1e293b', weight='bold')
                 ),
                 plot_bgcolor='#ffffff',
@@ -522,23 +512,31 @@ try:
                 hovermode='closest',
                 hoverdistance=3, 
                 hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0"),
-                xaxis=dict(title=None, showgrid=True, gridcolor='#f1f5f9', tickfont=dict(color='#64748b', size=12), type='date'),
-                yaxis=dict(visible=False, showgrid=False, zeroline=False, showticklabels=False),
+                # SPACING OPTIMIZATION 3: range padding buffers added around the hidden coordinates to separate layers
+                xaxis=dict(
+                    title=None, showgrid=True, gridcolor='#f1f5f9', 
+                    tickfont=dict(color='#64748b', size=12), type='date',
+                    rangeslider=dict(visible=True, thickness=0.04)
+                ),
+                yaxis=dict(
+                    visible=False, showgrid=False, zeroline=False, showticklabels=False,
+                    range=[0.3, max_stack + 0.7]
+                ),
                 legend=dict(
                     title=dict(text="Modality Class", font=dict(size=12, weight='bold')),
                     orientation="h",
                     yanchor="top",
-                    y=-0.18,
+                    y=-0.35, 
                     xanchor="center",
                     x=0.5
                 ),
                 margin=dict(l=10, r=10, t=50, b=80),
-                height=320
+                height=dynamic_height 
             )
             
-            st.plotly_chart(fig_timeline, use_container_width=True)
+            st.plotly_chart(fig_timeline, use_container_width=True, config={'displayModeBar': True, 'scrollZoom': True})
         else:
-            st.info(f"No transactions recorded during the immediate 1-{label_text} timeframe window.")
+            st.info("No transactions recorded during the current timeframe window.")
     else:
         st.info("No transaction coordinates available to map trend visualizations.")
 
