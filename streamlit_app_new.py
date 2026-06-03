@@ -394,7 +394,7 @@ try:
     if len(sel_cells) > 0:
         stats_df = stats_df[stats_df['CellTypes'].apply(lambda x: any(s in x for s in sel_cells))]
     if len(sel_tas) > 0: stats_df = stats_df[stats_df['TA'].isin(sel_tas)]
-    if len(sel_stages) > 0: stats_df = stats_df[stats_df['Stage'].isin(stats_df['Stage'])]
+    if len(sel_stages) > 0: stats_df = stats_df[stats_df['Stage'].isin(sel_stages)]
     
     if search_term:
         stats_df = stats_df[stats_df['SearchBlob'].str.contains(search_term.lower(), na=False)]
@@ -429,19 +429,30 @@ try:
     st.divider()
 
     # ==========================================
-    # 6.2 CHRONOLOGICAL NEWS GRAPHIC (DYNAMIC SCALING FIXED)
+    # 6.2 CHRONOLOGICAL NEWS GRAPHIC (STABLE ORDER FIXED)
     # ==========================================
     if not stats_df.empty:
         timeline_df = stats_df.copy()
         
         if not timeline_df.empty:
-            timeline_df = timeline_df.sort_values('Date_Obj', ascending=True)
-            timeline_df['stack_y'] = timeline_df.groupby('Date_Obj').cumcount() + 1
-            
-            # Formulate categorical matching lists to freeze colors tightly to legend items
+            # FIXED: Declare and resolve categorical array bounds before grouping or calculation iterations
             current_available_order = [o for o in MODALITY_ORDER if o in timeline_df['ParentModality'].unique()]
-            timeline_df['ParentModality'] = pd.Categorical(timeline_df['ParentModality'], categories=current_available_order, ordered=True)
-            timeline_df = timeline_df.sort_values(['Date_Obj', 'ParentModality'])
+            
+            # Sort securely by date and category hierarchy to ensure structured grid distributions
+            timeline_df = timeline_df.sort_values(['Date_Obj', 'ParentModality'], ascending=[True, True])
+            
+            # Calculate local row and wrapped column coordinate indexes per group
+            def wrap_daily_grids(group):
+                cum_idx = np.arange(len(group))
+                VERTICAL_CAP = 6  
+                group['col_shift'] = cum_idx // VERTICAL_CAP
+                group['stack_y'] = (cum_idx % VERTICAL_CAP) + 1
+                return group
+                
+            timeline_df = timeline_df.groupby('Date_Obj', group_keys=False).apply(wrap_daily_grids)
+            
+            # Map fractional hourly shifts down the X axis to split columns horizontally
+            timeline_df['Plot_DateTime'] = pd.to_datetime(timeline_df['Date_Obj']) + timeline_df['col_shift'] * pd.Timedelta(hours=5)
 
             hover_meta_list = []
             for _, r in timeline_df.iterrows():
@@ -469,7 +480,7 @@ try:
             
             fig_timeline = px.scatter(
                 timeline_df,
-                x='Date_Obj',
+                x='Plot_DateTime',  
                 y='stack_y',
                 color='ParentModality',
                 custom_data=['HoverHTML'], 
@@ -485,7 +496,6 @@ try:
                 category_orders={"ParentModality": current_available_order}
             )
             
-            # SPACING OPTIMIZATION 1: Marker dot diameters reduced slightly from 18px down to 14px to create padding margins
             if is_authenticated:
                 fig_timeline.update_traces(
                     marker=dict(size=14, opacity=0.85, line=dict(width=1.5, color='#ffffff')),
@@ -498,10 +508,6 @@ try:
                     hovertemplate=None
                 )
             
-            # SPACING OPTIMIZATION 2: Calculate dynamic pixel canvas scale proportional to peak density data counts
-            max_stack = int(timeline_df['stack_y'].max()) if not timeline_df.empty else 1
-            dynamic_height = max(380, 260 + (max_stack * 45))
-            
             fig_timeline.update_layout(
                 title=dict(
                     text="🧬 Interactive Deal Intelligence Master Timeline",
@@ -512,7 +518,6 @@ try:
                 hovermode='closest',
                 hoverdistance=3, 
                 hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0"),
-                # SPACING OPTIMIZATION 3: range padding buffers added around the hidden coordinates to separate layers
                 xaxis=dict(
                     title=None, showgrid=True, gridcolor='#f1f5f9', 
                     tickfont=dict(color='#64748b', size=12), type='date',
@@ -520,7 +525,7 @@ try:
                 ),
                 yaxis=dict(
                     visible=False, showgrid=False, zeroline=False, showticklabels=False,
-                    range=[0.3, max_stack + 0.7]
+                    range=[0.3, 6.7]
                 ),
                 legend=dict(
                     title=dict(text="Modality Class", font=dict(size=12, weight='bold')),
@@ -531,7 +536,7 @@ try:
                     x=0.5
                 ),
                 margin=dict(l=10, r=10, t=50, b=80),
-                height=dynamic_height 
+                height=390  
             )
             
             st.plotly_chart(fig_timeline, use_container_width=True, config={'displayModeBar': True, 'scrollZoom': True})
