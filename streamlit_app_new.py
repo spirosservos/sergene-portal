@@ -290,6 +290,16 @@ try:
             pass 
 
     df_master = load_and_refine_data()
+    
+    # SHIELD CHECK: Prevents vague sorting errors if cache or paths loaded a blank table on the server
+    if df_master.empty:
+        st.error("🧬 Database Initialization Error: 'sg_intel_assets.arrow' cannot be loaded by the web server.")
+        st.info("This usually happens if Streamlit cached an old error state before your database finished uploading to GitHub.")
+        if st.button("🔄 Clear App Cache Memory & Reload"):
+            st.cache_data.clear()
+            st.rerun()
+        st.stop()
+
     df_master = df_master.dropna(subset=['Date_Obj']).sort_values('Date_Obj', ascending=False)
 
     st.sidebar.title("🧬 SerGene Intelligence")
@@ -435,10 +445,7 @@ try:
         timeline_df = stats_df.copy()
         
         if not timeline_df.empty:
-            # FIXED: Declare and resolve categorical array bounds before grouping or calculation iterations
             current_available_order = [o for o in MODALITY_ORDER if o in timeline_df['ParentModality'].unique()]
-            
-            # Sort securely by date and category hierarchy to ensure structured grid distributions
             timeline_df = timeline_df.sort_values(['Date_Obj', 'ParentModality'], ascending=[True, True])
             
             # Calculate local row and wrapped column coordinate indexes per group
