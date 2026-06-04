@@ -4,7 +4,7 @@ import numpy as np
 import html
 import re
 import os
-import textwrap  # Integrated to break long analytical insights into multi-line tooltips
+import textwrap  
 from datetime import datetime
 from google import genai 
 import plotly.express as px  
@@ -253,6 +253,19 @@ def load_and_refine_data():
 # ==========================================
 # 5. UI, AUTHENTICATION & FILTERING
 # ==========================================
+
+# CRITICAL FIX: Load data outside the main UI try-except block so caching issues can be resolved cleanly
+df_master = load_and_refine_data()
+
+# GLOBAL CACHE RECONSTRUCTION SHIELD
+if df_master.empty or 'Date_Obj' not in df_master.columns:
+    st.warning("⚠️ Application Out of Sync: Streamlit Cloud is holding an older data cache snapshot.")
+    st.info("Click the button below to wipe the server memory clean and force the app to compile with the new structural updates.")
+    if st.button("🔄 Clear Server Cache Memory & Rebuild Database", key="critical_force_cache_clear_btn"):
+        st.cache_data.clear()
+        st.rerun()
+    st.stop()
+
 try:
     # Centralized Internal Audit Logging System
     def log_audit_event(client_tag, action, details=""):
@@ -288,17 +301,6 @@ try:
                 log_entry.to_csv(log_file, mode='a', header=False, index=False)
         except Exception:
             pass 
-
-    df_master = load_and_refine_data()
-    
-    # SHIELD CHECK: Prevents vague sorting errors if cache or paths loaded a blank table on the server
-    if df_master.empty:
-        st.error("🧬 Database Initialization Error: 'sg_intel_assets.arrow' cannot be loaded by the web server.")
-        st.info("This usually happens if Streamlit cached an old error state before your database finished uploading to GitHub.")
-        if st.button("🔄 Clear App Cache Memory & Reload"):
-            st.cache_data.clear()
-            st.rerun()
-        st.stop()
 
     df_master = df_master.dropna(subset=['Date_Obj']).sort_values('Date_Obj', ascending=False)
 
@@ -404,6 +406,8 @@ try:
     if len(sel_cells) > 0:
         stats_df = stats_df[stats_df['CellTypes'].apply(lambda x: any(s in x for s in sel_cells))]
     if len(sel_tas) > 0: stats_df = stats_df[stats_df['TA'].isin(sel_tas)]
+    
+    # TYPO FIX: Evaluates user selection array cleanly rather than referencing the master sequence mapping loops
     if len(sel_stages) > 0: stats_df = stats_df[stats_df['Stage'].isin(sel_stages)]
     
     if search_term:
@@ -439,7 +443,7 @@ try:
     st.divider()
 
     # ==========================================
-    # 6.2 CHRONOLOGICAL NEWS GRAPHIC (STABLE ORDER FIXED)
+    # 6.2 CHRONOLOGICAL NEWS GRAPHIC
     # ==========================================
     if not stats_df.empty:
         timeline_df = stats_df.copy()
