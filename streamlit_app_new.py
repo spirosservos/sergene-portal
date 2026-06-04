@@ -149,7 +149,6 @@ def load_and_refine_data():
             
             val = row[col_name]
             
-            # Avoid truth value ambiguity errors if an element is non-scalar (list or array)
             if isinstance(val, (list, np.ndarray)):
                 is_positive_signal = any(
                     str(i).strip().lower() in ['yes', 'y', 'true', '1'] or 
@@ -172,7 +171,6 @@ def load_and_refine_data():
                         pass
             
             if is_positive_signal:
-                # Intelligent semantic interceptor checks for custom row array mappings
                 if "nk" in col_name_clean:
                     raw_row_flags.append("NK Cells")
                 elif any(x in col_name_clean for x in ["gamma", "delta", "γ", "δ"]):
@@ -254,7 +252,6 @@ def load_and_refine_data():
 # 5. UI, AUTHENTICATION & FILTERING
 # ==========================================
 
-# CRITICAL FIX: Load data outside the main UI try-except block so caching issues can be resolved cleanly
 df_master = load_and_refine_data()
 
 # GLOBAL CACHE RECONSTRUCTION SHIELD
@@ -272,12 +269,11 @@ try:
         log_file = "sergene_audit_log.csv"
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Pull system environment network origins securely
         ip_address = "Unknown"
         try:
             if hasattr(st, "context") and st.context.headers:
                 x_forwarded = st.context.headers.get("x-forwarded-for")
-                if x_forwarded:
+                if x_forward = x_forwarded:
                     ip_address = x_forwarded.split(",")[0].strip()
                 else:
                     ip_address = st.context.headers.get("remote-addr", "Unknown")
@@ -378,7 +374,7 @@ try:
     # 8. Search Everything (Deep Scan)
     search_term = st.sidebar.text_input("🔍 Search Everything (Deep Scan)")
 
-    # HIDDEN ADMIN AUDIT LOG DOWNLOAD (OPTION 1)
+    # HIDDEN ADMIN AUDIT LOG DOWNLOAD 
     if is_authenticated and client_tag == "SPIROS-VIP":
         st.sidebar.markdown("---")
         st.sidebar.subheader("🛡️ System Administration")
@@ -406,8 +402,6 @@ try:
     if len(sel_cells) > 0:
         stats_df = stats_df[stats_df['CellTypes'].apply(lambda x: any(s in x for s in sel_cells))]
     if len(sel_tas) > 0: stats_df = stats_df[stats_df['TA'].isin(sel_tas)]
-    
-    # TYPO FIX: Evaluates user selection array cleanly rather than referencing the master sequence mapping loops
     if len(sel_stages) > 0: stats_df = stats_df[stats_df['Stage'].isin(sel_stages)]
     
     if search_term:
@@ -422,7 +416,6 @@ try:
     # ==========================================
     st.title("Strategic Deal Intelligence Stream")
     
-    # Process and calculate unique companies based on first word extraction
     partners_combined = pd.concat([stats_df['PartnerA'], stats_df['PartnerB']]).dropna()
     excluded_placeholders = ['n/a', 'nan', '', 'locked', 'unknown']
     partners_combined = partners_combined[~partners_combined.astype(str).str.lower().isin(excluded_placeholders)]
@@ -443,7 +436,7 @@ try:
     st.divider()
 
     # ==========================================
-    # 6.2 CHRONOLOGICAL NEWS GRAPHIC
+    # 6.2 CHRONOLOGICAL NEWS GRAPHIC (BULLETPROOF CODES)
     # ==========================================
     if not stats_df.empty:
         timeline_df = stats_df.copy()
@@ -452,15 +445,10 @@ try:
             current_available_order = [o for o in MODALITY_ORDER if o in timeline_df['ParentModality'].unique()]
             timeline_df = timeline_df.sort_values(['Date_Obj', 'ParentModality'], ascending=[True, True])
             
-            # Calculate local row and wrapped column coordinate indexes per group
-            def wrap_daily_grids(group):
-                cum_idx = np.arange(len(group))
-                VERTICAL_CAP = 6  
-                group['col_shift'] = cum_idx // VERTICAL_CAP
-                group['stack_y'] = (cum_idx % VERTICAL_CAP) + 1
-                return group
-                
-            timeline_df = timeline_df.groupby('Date_Obj', group_keys=False).apply(wrap_daily_grids)
+            # CLOUD ENGINE OPTIMIZATION: Replaced unstable groupby.apply loop with a native cumcount matrix mapping layer
+            timeline_df['cum_idx'] = timeline_df.groupby('Date_Obj').cumcount()
+            timeline_df['col_shift'] = timeline_df['cum_idx'] // 6
+            timeline_df['stack_y'] = (timeline_df['cum_idx'] % 6) + 1
             
             # Map fractional hourly shifts down the X axis to split columns horizontally
             timeline_df['Plot_DateTime'] = pd.to_datetime(timeline_df['Date_Obj']) + timeline_df['col_shift'] * pd.Timedelta(hours=5)
