@@ -273,7 +273,7 @@ try:
         try:
             if hasattr(st, "context") and st.context.headers:
                 x_forwarded = st.context.headers.get("x-forwarded-for")
-                if x_forward = x_forwarded:
+                if x_forwarded: # FIXED: Removed accidental '=' assignment syntax bug here
                     ip_address = x_forwarded.split(",")[0].strip()
                 else:
                     ip_address = st.context.headers.get("remote-addr", "Unknown")
@@ -436,7 +436,7 @@ try:
     st.divider()
 
     # ==========================================
-    # 6.2 CHRONOLOGICAL NEWS GRAPHIC (BULLETPROOF CODES)
+    # 6.2 CHRONOLOGICAL NEWS GRAPHIC
     # ==========================================
     if not stats_df.empty:
         timeline_df = stats_df.copy()
@@ -445,7 +445,7 @@ try:
             current_available_order = [o for o in MODALITY_ORDER if o in timeline_df['ParentModality'].unique()]
             timeline_df = timeline_df.sort_values(['Date_Obj', 'ParentModality'], ascending=[True, True])
             
-            # CLOUD ENGINE OPTIMIZATION: Replaced unstable groupby.apply loop with a native cumcount matrix mapping layer
+            # Cloud Engine Optimization Native Matrix
             timeline_df['cum_idx'] = timeline_df.groupby('Date_Obj').cumcount()
             timeline_df['col_shift'] = timeline_df['cum_idx'] // 6
             timeline_df['stack_y'] = (timeline_df['cum_idx'] % 6) + 1
