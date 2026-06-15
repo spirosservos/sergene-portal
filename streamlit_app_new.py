@@ -363,20 +363,32 @@ try:
     # ==========================================
     st.title("Strategic Deal Intelligence Stream")
     
+    # Calculate unique companies tracked
     partners_combined = pd.concat([stats_df['PartnerA'], stats_df['PartnerB']]).dropna()
     excluded_placeholders = ['n/a', 'nan', '', 'locked', 'unknown']
     partners_combined = partners_combined[~partners_combined.astype(str).str.lower().isin(excluded_placeholders)]
     company_first_words = partners_combined.astype(str).apply(lambda x: x.split()[0].lower() if len(x.split()) > 0 else '')
     unique_companies_count = company_first_words[company_first_words != ''].nunique()
     
+    # Create the 4-column layout grid
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Database Depth", f"{len(stats_df)} Deals")
     m2.metric("Companies Tracked", f"{unique_companies_count} Unique")
     m3.metric("Market Volume Analysed", f"${stats_df['TotalValueM'].sum()/1000:.1f}B")
     
-    valid_r = stats_df[stats_df['UpfrontRatio'] > 0]['UpfrontRatio']
-    avg_r = valid_r.mean() if not valid_r.empty else 0
+    # --- NEW CORRECTED UPFRONT RATIO CALCULATION ENGINE ---
+    # Isolates standard partnership deals (ignores 100% M&A and 0% unpopulated terms)
+    partnership_deals = stats_df[(stats_df['TotalValueM'] > 0) & (stats_df['UpfrontRatio'] < 1.0) & (stats_df['UpfrontRatio'] > 0)]
+    
+    total_upfront_dollars = (partnership_deals['TotalValueM'] * partnership_deals['UpfrontRatio']).sum()
+    total_deal_dollars = partnership_deals['TotalValueM'].sum()
+    
+    avg_r = (total_upfront_dollars / total_deal_dollars) if total_deal_dollars > 0 else 0
+    
+    # Render the final filtered metric to column 4
     m4.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
+    # ------------------------------------------------------
+
     st.divider()
 
     # ==========================================
