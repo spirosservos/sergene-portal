@@ -73,7 +73,12 @@ def parse_currency(val_str):
             unit = match.group(2).upper()
             if unit == 'B': return num * 1000
             return num
-        return float(clean_val)
+        
+        # FIX: Converts fully typed raw numbers (e.g., 50,000,000) down to millions scale
+        val = float(clean_val)
+        if val > 10000:
+            return val / 1000000.0
+        return val
     except: return 0.0
 
 def smart_format_company(name):
@@ -128,7 +133,6 @@ def load_and_refine_data():
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         df = df.sort_values(by='Date', ascending=False)
     
-    # Strict whitelist to isolate scientific modalities and prevent data leakage
     TECH_COLUMNS = [
         'Small Molecule', 'Biologics', 'Protein Degrader', 'Peptide', 'GLP-1', 'Incretin', 
         'RNA', 'mRNA', 'siRNA', 'RNAi', 'miRNA', 'ASO', 'Antisense', 'Aptamer', 
@@ -146,7 +150,6 @@ def load_and_refine_data():
         raw_row_flags = []
         for col_name in row.index:
             col_name_clean = str(col_name).strip().lower()
-            
             val = row[col_name]
             
             if isinstance(val, (list, np.ndarray)):
@@ -158,7 +161,6 @@ def load_and_refine_data():
             else:
                 if pd.isna(val):
                     continue
-                
                 clean_val = str(val).strip().lower()
                 is_positive_signal = False
                 if clean_val in ['yes', 'y', 'true', '1']:
@@ -198,7 +200,6 @@ def load_and_refine_data():
                 tags.append(flag)
 
         tags = list(set([t for t in tags if t and str(t).lower() != 'nan']))
-        
         cell_types_extracted = [t for t in tags if t in CELL_THERAPY_TAGS]
         platforms_extracted = [t for t in tags if t not in CELL_THERAPY_TAGS]
         
@@ -211,7 +212,11 @@ def load_and_refine_data():
         
         val_m = parse_currency(row.get('DealValue', ''))
         up_m = parse_currency(row.get('Upfront', ''))
+        
+        # FIX: Implements safety cap ensuring ratio never breaks past 100% due to data formatting
         ratio = (up_m / val_m) if val_m > 0 else 0.0
+        if ratio > 1.0:
+            ratio = 1.0
 
         row_values = []
         for val in row.values:
@@ -251,97 +256,65 @@ def load_and_refine_data():
 # ==========================================
 # 5. UI, AUTHENTICATION & FILTERING
 # ==========================================
-
 df_master = load_and_refine_data()
 
-# GLOBAL CACHE RECONSTRUCTION SHIELD
 if df_master.empty or 'Date_Obj' not in df_master.columns:
     st.warning("⚠️ Application Out of Sync: Streamlit Cloud is holding an older data cache snapshot.")
-    st.info("Click the button below to wipe the server memory clean and force the app to compile with the new structural updates.")
     if st.button("🔄 Clear Server Cache Memory & Rebuild Database", key="critical_force_cache_clear_btn"):
         st.cache_data.clear()
         st.rerun()
     st.stop()
 
 try:
-    # Centralized Internal Audit Logging System
     def log_audit_event(client_tag, action, details=""):
         log_file = "sergene_audit_log.csv"
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
         ip_address = "Unknown"
         try:
             if hasattr(st, "context") and st.context.headers:
                 x_forwarded = st.context.headers.get("x-forwarded-for")
-                if x_forwarded: # FIXED: Removed accidental '=' assignment syntax bug here
-                    ip_address = x_forwarded.split(",")[0].strip()
-                else:
-                    ip_address = st.context.headers.get("remote-addr", "Unknown")
-            elif hasattr(st, "context") and st.context.ip_address:
-                ip_address = st.context.ip_address
-        except Exception:
-            pass
+                if x_forwarded: ip_address = x_forwarded.split(",")[0].strip()
+                else: ip_address = st.context.headers.get("remote-addr", "Unknown")
+        except Exception: pass
             
-        log_entry = pd.DataFrame([{
-            "Timestamp": timestamp,
-            "Client_Tag": client_tag,
-            "Action": action,
-            "IP_Address": ip_address,
-            "Details": details
-        }])
-        
+        log_entry = pd.DataFrame([{"Timestamp": timestamp, "Client_Tag": client_tag, "Action": action, "IP_Address": ip_address, "Details": details}])
         try:
-            if not os.path.exists(log_file):
-                log_entry.to_csv(log_file, index=False)
-            else:
-                log_entry.to_csv(log_file, mode='a', header=False, index=False)
-        except Exception:
-            pass 
+            if not os.path.exists(log_file): log_entry.to_csv(log_file, index=False)
+            else: log_entry.to_csv(log_file, mode='a', header=False, index=False)
+        except Exception: pass 
 
     df_master = df_master.dropna(subset=['Date_Obj']).sort_values('Date_Obj', ascending=False)
-
     st.sidebar.title("🧬 SerGene Intelligence")
     st.sidebar.markdown("---")
 
-    # 1. Select Timeframe & Date Range
     st.sidebar.subheader("📅 Select Timeframe")
     min_db = df_master['Date_Obj'].min()
     max_db = df_master['Date_Obj'].max()
     date_sel = st.sidebar.date_input("Date Range", value=(min_db, max_db), min_value=min_db, max_value=max(max_db, datetime.now().date()))
-
     st.sidebar.divider()
 
-    # Client Access Secure Memory Setup 
-    if "download_count" not in st.session_state:
-        st.session_state["download_count"] = 0
-    if "is_authenticated" not in st.session_state:
-        st.session_state["is_authenticated"] = False
-    if "active_client_tag" not in st.session_state:
-        st.session_state["active_client_tag"] = "Guest"
+    if "download_count" not in st.session_state: st.session_state["download_count"] = 0
+    if "is_authenticated" not in st.session_state: st.session_state["is_authenticated"] = False
+    if "active_client_tag" not in st.session_state: st.session_state["active_client_tag"] = "Guest"
 
     with st.sidebar.expander("🔑 Client Access", expanded=False):
         raw_keys = st.secrets.get("client_keys", "")
         valid_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
-        
         legacy_pass = st.secrets.get("access_password")
-        if legacy_pass:
-            valid_keys.append(legacy_pass)
+        if legacy_pass: valid_keys.append(legacy_pass)
 
         password_input = st.text_input("Enter Access Code", type="password", key="access_credential_input")
-        
         if password_input in valid_keys and password_input != "":
             if not st.session_state["is_authenticated"] or st.session_state["active_client_tag"] != password_input:
                 st.session_state["is_authenticated"] = True
                 st.session_state["active_client_tag"] = password_input
                 log_audit_event(password_input, "Login Success", "Client authenticated via sidebar.")
         elif password_input:
-            if st.session_state["is_authenticated"]:
-                log_audit_event(st.session_state["active_client_tag"], "De-authenticated", "Incorrect key layer override attempt.")
+            if st.session_state["is_authenticated"]: log_audit_event(st.session_state["active_client_tag"], "De-authenticated", "Incorrect key layer override attempt.")
             st.session_state["is_authenticated"] = False
             st.session_state["active_client_tag"] = "Guest"
 
-        if st.session_state["is_authenticated"]:
-            st.success("Access Verified")
+        if st.session_state["is_authenticated"]: st.success("Access Verified")
         else:
             st.markdown("---")
             st.caption("Contact Support for Code:")
@@ -349,81 +322,53 @@ try:
 
     is_authenticated = st.session_state["is_authenticated"]
     client_tag = st.session_state["active_client_tag"]
-
     st.sidebar.divider()
 
-    # 3. Modality Class
     existing_parents = df_master['ParentModality'].unique().tolist()
     sorted_parents_options = [m for m in MODALITY_ORDER if m in existing_parents] + [m for m in existing_parents if m not in MODALITY_ORDER]
     sel_parents = st.sidebar.multiselect("Modality Class", sorted_parents_options)
     
-    # 4. Platforms & Delivery Dropdown
     all_platforms = list(set([p for sub in df_master['Platforms'] for p in sub]))
     sorted_platform_options = [p for p in PLATFORM_ORDER if p in all_platforms] + [p for p in all_platforms if p not in PLATFORM_ORDER]
     sel_platforms = st.sidebar.multiselect("Platforms & Delivery", sorted_platform_options)
 
-    # 5. Cell Types Dropdown 
     sel_cells = st.sidebar.multiselect("Cell Types", CELL_THERAPY_TAGS)
-
-    # 6. Therapeutic Area
     sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()))
-
-    # 7. Development Stage
     sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()))
-    
-    # 8. Search Everything (Deep Scan)
     search_term = st.sidebar.text_input("🔍 Search Everything (Deep Scan)")
 
-    # HIDDEN ADMIN AUDIT LOG DOWNLOAD 
     if is_authenticated and client_tag == "SPIROS-VIP":
         st.sidebar.markdown("---")
         st.sidebar.subheader("🛡️ System Administration")
         if os.path.exists("sergene_audit_log.csv"):
             with open("sergene_audit_log.csv", "rb") as f:
-                st.sidebar.download_button(
-                    label="📥 Download Master Audit Logs",
-                    data=f,
-                    file_name="Master_Security_Audit_Log.csv",
-                    mime="text/csv",
-                    key="admin_audit_log_download_btn"
-                )
-        else:
-            st.sidebar.caption("No log data recorded yet in this server session.")
+                st.sidebar.download_button(label="📥 Download Master Audit Logs", data=f, file_name="Master_Security_Audit_Log.csv", mime="text/csv", key="admin_audit_log_download_btn")
 
-    # --- FILTERING ENGINE ---
     stats_df = df_master.copy()
-
     if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
         stats_df = stats_df[(stats_df['Date_Obj'] >= date_sel[0]) & (stats_df['Date_Obj'] <= date_sel[1])]
-    
     if len(sel_parents) > 0: stats_df = stats_df[stats_df['ParentModality'].isin(sel_parents)]
-    if len(sel_platforms) > 0:
-        stats_df = stats_df[stats_df['Platforms'].apply(lambda x: any(s in x for s in sel_platforms))]
-    if len(sel_cells) > 0:
-        stats_df = stats_df[stats_df['CellTypes'].apply(lambda x: any(s in x for s in sel_cells))]
+    if len(sel_platforms) > 0: stats_df = stats_df[stats_df['Platforms'].apply(lambda x: any(s in x for s in sel_platforms))]
+    if len(sel_cells) > 0: stats_df = stats_df[stats_df['CellTypes'].apply(lambda x: any(s in x for s in sel_cells))]
     if len(sel_tas) > 0: stats_df = stats_df[stats_df['TA'].isin(sel_tas)]
     if len(sel_stages) > 0: stats_df = stats_df[stats_df['Stage'].isin(sel_stages)]
-    
-    if search_term:
-        stats_df = stats_df[stats_df['SearchBlob'].str.contains(search_term.lower(), na=False)]
+    if search_term: stats_df = stats_df[stats_df['SearchBlob'].str.contains(search_term.lower(), na=False)]
 
     GLOBAL_PREVIEW_LIMIT = 5
     BLUR_LIMIT = 3
     visible_df = stats_df if is_authenticated else stats_df.head(GLOBAL_PREVIEW_LIMIT)
 
     # ==========================================
-    # 6. DASHBOARD
+    # 6. DASHBOARD METRICS
     # ==========================================
     st.title("Strategic Deal Intelligence Stream")
     
     partners_combined = pd.concat([stats_df['PartnerA'], stats_df['PartnerB']]).dropna()
     excluded_placeholders = ['n/a', 'nan', '', 'locked', 'unknown']
     partners_combined = partners_combined[~partners_combined.astype(str).str.lower().isin(excluded_placeholders)]
-    
     company_first_words = partners_combined.astype(str).apply(lambda x: x.split()[0].lower() if len(x.split()) > 0 else '')
     unique_companies_count = company_first_words[company_first_words != ''].nunique()
     
-    # 4-Column Layout
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Database Depth", f"{len(stats_df)} Deals")
     m2.metric("Companies Tracked", f"{unique_companies_count} Unique")
@@ -432,243 +377,134 @@ try:
     valid_r = stats_df[stats_df['UpfrontRatio'] > 0]['UpfrontRatio']
     avg_r = valid_r.mean() if not valid_r.empty else 0
     m4.metric("Avg. Upfront Ratio", f"{avg_r:.1%}")
-
     st.divider()
 
     # ==========================================
-    # 6.2 CHRONOLOGICAL NEWS GRAPHIC
+    # 6.2 PLOTLY MASTER TIMELINE
     # ==========================================
     if not stats_df.empty:
         timeline_df = stats_df.copy()
-        
         if not timeline_df.empty:
             current_available_order = [o for o in MODALITY_ORDER if o in timeline_df['ParentModality'].unique()]
             timeline_df = timeline_df.sort_values(['Date_Obj', 'ParentModality'], ascending=[True, True])
-            
-            # Cloud Engine Optimization Native Matrix
             timeline_df['cum_idx'] = timeline_df.groupby('Date_Obj').cumcount()
             timeline_df['col_shift'] = timeline_df['cum_idx'] // 6
             timeline_df['stack_y'] = (timeline_df['cum_idx'] % 6) + 1
-            
-            # Map fractional hourly shifts down the X axis to split columns horizontally
             timeline_df['Plot_DateTime'] = pd.to_datetime(timeline_df['Date_Obj']) + timeline_df['col_shift'] * pd.Timedelta(hours=5)
 
             hover_meta_list = []
             for _, r in timeline_df.iterrows():
-                if not is_authenticated:
-                    text_html = "" 
+                if not is_authenticated: text_html = "" 
                 else:
-                    raw_insight = r['Insight'] if r['Insight'] else ""
-                    wrapped_insight = "<br>".join(textwrap.wrap(html.escape(raw_insight), width=70))
-                    chart_value = html.escape(r['DisplayValue'])
-                    
+                    wrapped_insight = "<br>".join(textwrap.wrap(html.escape(r['Insight']), width=70))
                     text_html = (
                         f"<span style='font-size:15px; font-family:Arial, sans-serif; line-height:1.6; color:#0f172a;'>"
                         f"<b style='color:#2563eb;'>📅 DATE:</b> {r['DisplayDate']}<br>"
                         f"<b style='color:#059669;'>🤝 PARTNERS:</b> {html.escape(r['PartnerA'])} & {html.escape(r['PartnerB'])}<br>"
-                        f"<b style='color:#d97706;'>💰 VALUE:</b> {chart_value}<br>"
+                        f"<b style='color:#d97706;'>💰 VALUE:</b> {html.escape(r['DisplayValue'])}<br>"
                         f"<b style='color:#7c3aed;'>🧬 CLASS:</b> {html.escape(r['ParentModality'])}<br>"
                         f"<b style='color:#0284c7;'>🎯 TARGET:</b> {html.escape(r['TargetDisease'])}<br><br>"
-                        f"<b style='color:#dc2626;'>💡 STRATEGIC INSIGHT:</b><br>"
-                        f"<i style='color:#334155;'>{wrapped_insight}</i>"
-                        f"</span>"
+                        f"<b style='color:#dc2626;'>💡 STRATEGIC INSIGHT:</b><br><i style='color:#334155;'>{wrapped_insight}</i></span>"
                     )
                 hover_meta_list.append(text_html)
                 
             timeline_df['HoverHTML'] = hover_meta_list
-            
             fig_timeline = px.scatter(
-                timeline_df,
-                x='Plot_DateTime',  
-                y='stack_y',
-                color='ParentModality',
-                custom_data=['HoverHTML'], 
+                timeline_df, x='Plot_DateTime', y='stack_y', color='ParentModality', custom_data=['HoverHTML'],
                 color_discrete_map={
-                    "Gene Therapy/Editing": "#3b82f6",
-                    "Cell Therapy": "#10b981",
-                    "RNA Therapeutics": "#6366f1",
-                    "Immunotherapies": "#ec4899",
-                    "Biologics": "#f59e0b",
-                    "Small Molecule": "#b91c1c",
+                    "Gene Therapy/Editing": "#3b82f6", "Cell Therapy": "#10b981", "RNA Therapeutics": "#6366f1",
+                    "Immunotherapies": "#ec4899", "Biologics": "#f59e0b", "Small Molecule": "#b91c1c",
                     "Emerging Platforms & Conjugates": "#64748b"
                 },
                 category_orders={"ParentModality": current_available_order}
             )
-            
-            if is_authenticated:
-                fig_timeline.update_traces(
-                    marker=dict(size=14, opacity=0.85, line=dict(width=1.5, color='#ffffff')),
-                    hovertemplate="%{customdata[0]}<extra></extra>" 
-                )
-            else:
-                fig_timeline.update_traces(
-                    marker=dict(size=14, opacity=0.85, line=dict(width=1.5, color='#ffffff')),
-                    hoverinfo="skip",
-                    hovertemplate=None
-                )
+            if is_authenticated: fig_timeline.update_traces(marker=dict(size=14, opacity=0.85, line=dict(width=1.5, color='#ffffff')), hovertemplate="%{customdata[0]}<extra></extra>")
+            else: fig_timeline.update_traces(marker=dict(size=14, opacity=0.85, line=dict(width=1.5, color='#ffffff')), hoverinfo="skip", hovertemplate=None)
             
             fig_timeline.update_layout(
-                title=dict(
-                    text="🧬 Interactive Deal Intelligence Master Timeline",
-                    font=dict(size=16, color='#1e293b', weight='bold')
-                ),
-                plot_bgcolor='#ffffff',
-                paper_bgcolor='rgba(0,0,0,0)',
-                hovermode='closest',
-                hoverdistance=3, 
-                hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0"),
-                xaxis=dict(
-                    title=None, showgrid=True, gridcolor='#f1f5f9', 
-                    tickfont=dict(color='#64748b', size=12), type='date',
-                    rangeslider=dict(visible=True, thickness=0.04)
-                ),
-                yaxis=dict(
-                    visible=False, showgrid=False, zeroline=False, showticklabels=False,
-                    range=[0.3, 6.7]
-                ),
-                legend=dict(
-                    title=dict(text="Modality Class", font=dict(size=12, weight='bold')),
-                    orientation="h",
-                    yanchor="top",
-                    y=-0.35, 
-                    xanchor="center",
-                    x=0.5
-                ),
-                margin=dict(l=10, r=10, t=50, b=80),
-                height=390  
+                title=dict(text="🧬 Interactive Deal Intelligence Master Timeline", font=dict(size=16, color='#1e293b', weight='bold')),
+                plot_bgcolor='#ffffff', paper_bgcolor='rgba(0,0,0,0)', hovermode='closest', xaxis=dict(title=None, showgrid=True, gridcolor='#f1f5f9', type='date', rangeslider=dict(visible=True, thickness=0.04)),
+                yaxis=dict(visible=False, showgrid=False, range=[0.3, 6.7]), legend=dict(title=dict(text="Modality Class"), orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5), margin=dict(l=10, r=10, t=50, b=80), height=390  
             )
-            
             st.plotly_chart(fig_timeline, use_container_width=True, config={'displayModeBar': True, 'scrollZoom': True})
-        else:
-            st.info("No transactions recorded during the current timeframe window.")
-    else:
-        st.info("No transaction coordinates available to map trend visualizations.")
-
     st.divider()
 
     with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
         c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown("### **Modality Mix**")
-            st.bar_chart(stats_df['ParentModality'].value_counts(), color="#3b82f6")
-        with c2:
-            st.markdown("### **Therapeutic Focus**")
-            st.bar_chart(stats_df['TA'].value_counts(), color="#10b981")
-        with c3:
-            st.markdown("### **Development Stage**")
-            st.bar_chart(stats_df['Stage'].value_counts(), color="#6366f1")
+        with c1: st.bar_chart(stats_df['ParentModality'].value_counts(), color="#3b82f6")
+        with c2: st.bar_chart(stats_df['TA'].value_counts(), color="#10b981")
+        with c3: st.bar_chart(stats_df['Stage'].value_counts(), color="#6366f1")
 
-    # AI Section
-    st.write("") 
     if is_authenticated:
         ai_ready = st.toggle("Enable AI Strategic Analysis Tool", value=False)
-        if ai_ready:
-            if st.button("🪄 Generate AI Strategic Brief"):
-                with st.status("🤖 Analyzing current deal flow...", expanded=True):
-                    deal_list = "\n".join([f"- {r['PartnerA']} & {r['PartnerB']}: {r['Insight']}" for _, r in stats_df.head(20).iterrows()])
-                    prompt = f"""
-                    You are a Senior Biotech Strategic Analyst. Analyze these recent deals:
-                    {deal_list}
-                    
-                    Provide a professional 3-point summary:
-                    1. What is the biggest trend in this specific segment?
-                    2. What does this suggest about the current market risk appetite?
-                    3. A 1-sentence 'Strategic Outlook' for an investor.
-                    """
-                    try:
-                        response = ai_client.models.generate_content(model=AI_MODEL, contents=prompt)
-                        st.markdown(f'<div class="ai-strategy-box"><h3 style="margin-top:0;">🤖 Strategic Market Brief</h3><p style="white-space: pre-wrap;">{response.text}</p></div>', unsafe_allow_html=True)
-                    except Exception as ai_e: st.error(f"AI Error: {ai_e}")
+        if ai_ready and st.button("🪄 Generate AI Strategic Brief"):
+            with st.status("🤖 Analyzing current deal flow...", expanded=True):
+                deal_list = "\n".join([f"- {r['PartnerA']} & {r['PartnerB']}: {r['Insight']}" for _, r in stats_df.head(20).iterrows()])
+                prompt = f"You are a Senior Biotech Strategic Analyst. Analyze these recent deals:\n{deal_list}\n\nProvide a professional 3-point summary:\n1. Biggest trend?\n2. Market risk appetite?\n3. 1-sentence 'Strategic Outlook'."
+                try:
+                    response = ai_client.models.generate_content(model=AI_MODEL, contents=prompt)
+                    st.markdown(f'<div class="ai-strategy-box"><h3 style="margin-top:0;">🤖 Strategic Market Brief</h3><p style="white-space: pre-wrap;">{response.text}</p></div>', unsafe_allow_html=True)
+                except Exception as ai_e: st.error(f"AI Error: {ai_e}")
     else:
         st.warning("🔒 AI Strategic Analysis is a Premium Feature for Clients.")
 
     # ==========================================
-    # 6.5 EXPORT INTELLIGENCE STREAM
+    # 6.5 EXPORT INTELLIGENCE STREAM 
     # ==========================================
     st.write("")
     st.subheader("📥 Export Intelligence Stream")
-    download_limit = 20 if is_authenticated else 5
     DOWNLOAD_MAX_SESSION_CAP = 5 
+    is_admin = (client_tag == "SPIROS-VIP")
     
     if not stats_df.empty:
-        if is_authenticated and st.session_state["download_count"] >= DOWNLOAD_MAX_SESSION_CAP:
-            st.error("⚠️ Session Export Limit Reached. Bulk scraping is restricted to maintain asset security. Please reach out directly if your contract requires complete raw file endpoints.")
+        if is_authenticated and st.session_state["download_count"] >= DOWNLOAD_MAX_SESSION_CAP and not is_admin:
+            st.error("⚠️ Session Export Limit Reached.")
         else:
-            target_records = stats_df.head(download_limit)
-            
-            if is_authenticated:
-                export_data = {
-                    'Date': target_records['DisplayDate'],
-                    'Modality Class': target_records['ParentModality'],
+            if is_admin:
+                admin_df = stats_df.copy()
+                export_df = pd.DataFrame({
+                    'Internal Row ID': admin_df['Row_ID'], 'Date': admin_df['DisplayDate'], 'Modality Class': admin_df['ParentModality'],
+                    'Platforms & Delivery': admin_df['Platforms'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x),
+                    'Cell Types': admin_df['CellTypes'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x),
+                    'Therapeutic Area': admin_df['TA'], 'Target Disease': admin_df['TargetDisease'], 'Development Stage': admin_df['Stage'],
+                    'Deal Value': admin_df['DisplayValue'], 'Parsed Numeric Value ($M)': admin_df['TotalValueM'], 'Upfront Ratio': admin_df['UpfrontRatio'].round(4), 
+                    'Partner A': admin_df['PartnerA'], 'Partner B': admin_df['PartnerB'], 'Strategic Insight': admin_df['Insight'], 'Source Link URL': admin_df['Link']
+                })
+            elif is_authenticated:
+                target_records = stats_df.head(20)
+                export_df = pd.DataFrame({
+                    'Date': target_records['DisplayDate'], 'Modality Class': target_records['ParentModality'],
                     'Platforms & Delivery': target_records['Platforms'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x),
                     'Cell Types': target_records['CellTypes'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x),
-                    'Therapeutic Area': target_records['TA'],
-                    'Target Disease': target_records['TargetDisease'],
-                    'Development Stage': target_records['Stage'],
-                    'Deal Value': target_records['DisplayValue'],
-                    'Upfront Ratio': target_records['UpfrontRatio'].round(2), 
-                    'Partner A': target_records['PartnerA'],
-                    'Partner B': target_records['PartnerB'],
-                    'Insight': target_records['Insight'],
-                    'Title': target_records['Title'],
-                    'Summary': target_records['Summary'],
-                    'Corporate License Audit Stamp': f"Licensed to SerGene ID: {client_tag} | Verification Stamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                }
+                    'Therapeutic Area': target_records['TA'], 'Target Disease': target_records['TargetDisease'], 'Development Stage': target_records['Stage'],
+                    'Deal Value': target_records['DisplayValue'], 'Upfront Ratio': target_records['UpfrontRatio'].round(2), 
+                    'Partner A': target_records['PartnerA'], 'Partner B': target_records['PartnerB'], 'Insight': target_records['Insight'], 'Source Link URL': target_records['Link']
+                })
             else:
-                export_data = {
-                    'Date': target_records['DisplayDate'],
-                    'Modality Class': target_records['ParentModality'],
-                    'Platforms & Delivery': target_records['Platforms'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x),
-                    'Cell Types': target_records['CellTypes'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x),
-                    'Therapeutic Area': target_records['TA'],
-                    'Target Disease': target_records['TargetDisease'],
-                    'Development Stage': target_records['Stage'],
-                    'Partner A': target_records['PartnerA'],
-                    'Partner B': target_records['PartnerB'],
-                    'Title': target_records['Title'],
-                    'Deal Value': "🔒 LOCKED (Access Code Required)",
-                    'Upfront Ratio': "🔒 LOCKED", 
-                    'Insight': "🔒 LOCKED (Access Code Required)",
-                    'Summary': "🔒 LOCKED (Access Code Required)",
-                    'Corporate License Audit Stamp': "Free Tier Export"
-                }
+                target_records = stats_df.head(5)
+                export_df = pd.DataFrame({
+                    'Date': target_records['DisplayDate'], 'Modality Class': target_records['ParentModality'], 'Therapeutic Area': target_records['TA'], 
+                    'Target Disease': target_records['TargetDisease'], 'Development Stage': target_records['Stage'], 'Partner A': target_records['PartnerA'], 'Partner B': target_records['PartnerB']
+                })
             
-            export_df = pd.DataFrame(export_data)
             csv_payload = export_df.to_csv(index=False).encode('utf-8-sig')
             filename_stamp = datetime.now().strftime('%Y%m%d')
             
-            if is_authenticated:
-                st.info(f"Premium Export Active: Extracting up to {download_limit} deals. Remaining session downloads: {DOWNLOAD_MAX_SESSION_CAP - st.session_state['download_count']}")
-                
-                if st.download_button(
-                    label=f"📥 Download Top {len(export_df)} Filtered Deals (CSV)", 
-                    data=csv_payload, 
-                    file_name=f"SerGene_Premium_Extract_{filename_stamp}.csv", 
-                    mime="text/csv",
-                    key="cloud_premium_download_button"
-                ):
+            if is_admin:
+                st.download_button(label=f"📥 Download Unrestricted Master Sheet ({len(export_df)} Deals CSV)", data=csv_payload, file_name=f"SerGene_MASTER_{filename_stamp}.csv", mime="text/csv", key="cloud_admin_master_download_button")
+            elif is_authenticated:
+                if st.download_button(label=f"📥 Download Top {len(export_df)} Filtered Deals (CSV)", data=csv_payload, file_name=f"SerGene_Premium_{filename_stamp}.csv", mime="text/csv", key="cloud_premium_download_button"):
                     st.session_state["download_count"] += 1
-                    log_audit_event(client_tag, "CSV Export Executed", f"Extracted {len(export_df)} items. Session Count: {st.session_state['download_count']}")
+                    log_audit_event(client_tag, "CSV Export Executed", f"Extracted {len(export_df)} items.")
             else:
-                st.warning(f"Free Version Active: Downloads are limited to a maximum of 5 deals.")
-                if st.download_button(
-                    label=f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)", 
-                    data=csv_payload, 
-                    file_name=f"SerGene_Preview_Extract_{filename_stamp}.csv", 
-                    mime="text/csv",
-                    key="cloud_preview_download_button"
-                ):
-                    log_audit_event("Guest", "Preview Export Executed", "Downloaded unauthenticated preview set.")
-    else:
-        st.info("No matching data entries are available to generate an extraction file.")
-
+                st.download_button(label=f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)", data=csv_payload, file_name=f"SerGene_Preview_{filename_stamp}.csv", mime="text/csv", key="cloud_preview_download_button")
     st.divider()
 
     # ==========================================
-    # 7. DEAL CARDS
+    # 7. DEAL CARDS DISPLAY
     # ==========================================
     CARD_HTML = """
-    <div class="deal-card {extra_class}">
+    <div class="deal-card">
         <div style="display: flex; justify-content: space-between; align-items: start; gap: 2rem;">
             <div style="flex: 2;">
                 <div class="date-badge">{d_date} | {ta} • {stage}</div>
@@ -694,44 +530,21 @@ try:
     """
 
     if stats_df.empty:
-        st.info("No matching deals found for the current filters.")
+        st.info("No matching deals found.")
     else:
         financial_blur = "" if is_authenticated else "blur-financials"
-        
         for _, row in visible_df.iterrows():
             tags_h = "".join([f'<span class="tag">{html.escape(t)}</span>' for t in row['SubModalities']])
             r_val = int(round(row['UpfrontRatio'] * 100))
             st.markdown(CARD_HTML.format(
-                extra_class="", d_date=row['DisplayDate'], ta=row['TA'], target=row['TargetDisease'],
-                stage=row['Stage'], p_mod=row['ParentModality'], link=row['Link'], 
-                insight=html.escape(row['Insight']), title=html.escape(row['Title']), 
-                summary=html.escape(row['Summary']), tags=tags_h, value=row['DisplayValue'], 
-                r_pct=r_val, pA=row['PartnerA'], pB=row['PartnerB'],
-                blur_financials_class=financial_blur
+                d_date=row['DisplayDate'], ta=row['TA'], target=row['TargetDisease'], stage=row['Stage'], p_mod=row['ParentModality'], link=row['Link'], 
+                insight=html.escape(row['Insight']), title=html.escape(row['Title']), summary=html.escape(row['Summary']), tags=tags_h, value=row['DisplayValue'], 
+                r_pct=r_val, pA=row['PartnerA'], pB=row['PartnerB'], blur_financials_class=financial_blur
             ), unsafe_allow_html=True)
 
-    # --- BLURRED CARDS & CTA BANNER ---
     if not is_authenticated:
-        for _, row in stats_df.iloc[GLOBAL_PREVIEW_LIMIT : GLOBAL_PREVIEW_LIMIT + BLUR_LIMIT].iterrows():
-            st.markdown(CARD_HTML.format(
-                extra_class="blurred-card", d_date=row['DisplayDate'], ta=row['TA'], target="LOCKED",
-                stage=row['Stage'], p_mod=row['ParentModality'], link="#", insight="LOCKED", 
-                title="LOCKED", summary="Unlock full access to view details.", tags="", 
-                value="$$$", r_pct=0, pA="LOCKED", pB="LOCKED",
-                blur_financials_class=""  
-            ), unsafe_allow_html=True)
-            
         mailto_link = "mailto:spiros@sergenebio.co.uk?subject=Access Request"
-        st.markdown(f"""
-            <div class="cta-banner">
-                <h2 style="color: #991b1b; margin-top: 0;">🔒 Unlock Full Historical Access</h2>
-                <p style="font-size: 1.1rem; color: #b91c1c; margin-bottom: 1.5rem;">Analyze the full historical database and generate custom AI Strategic Briefs.</p>
-                <a href="{mailto_link}" style="text-decoration:none; color:white; background:#ef4444; padding:1rem 2rem; border-radius:0.75rem; font-weight:800; font-size:1.1rem; display:inline-block;">Request Access Code</a>
-                <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px dashed #fca5a5;">
-                    <p style="font-size: 0.9rem; color: #7f1d1d; margin: 0;">Direct Inquiry: <b>spiros@sergenebio.co.uk</b></p>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f'<div class="cta-banner"><h2 style="color: #991b1b; margin-top: 0;">🔒 Unlock Full Access</h2><a href="{mailto_link}" style="text-decoration:none; color:white; background:#ef4444; padding:1rem 2rem; border-radius:0.75rem; font-weight:800; display:inline-block;">Request Access Code</a></div>', unsafe_allow_html=True)
             
 except Exception as e:
     st.error(f"BI Module Error: {e}")
