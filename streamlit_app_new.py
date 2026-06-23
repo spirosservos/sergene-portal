@@ -139,11 +139,23 @@ st.markdown("""
         border-radius: 0.5rem;
     }
     
-    /* 👈 NEW: Enforces green coloring and increases font size across directory navigation tabs */
     button[data-baseweb="tab"], button[data-baseweb="tab"] span, button[data-baseweb="tab"] div {
         color: #10b981 !important;
         font-size: 1.25rem !important;
         font-weight: 700 !important;
+    }
+    
+    div[data-baseweb="tab-highlight"] {
+        background-color: #065f46 !important;
+    }
+    
+    div[data-baseweb="radio"] div[data-checked="true"] {
+        background-color: #065f46 !important;
+        border-color: #065f46 !important;
+    }
+    
+    div[data-testid="stDataFrame"] {
+        font-size: 0.825rem !important;
     }
     
     .deal-card {
@@ -343,16 +355,20 @@ try:
 
     df_master = df_master.dropna(subset=['Date_Obj']).sort_values('Date_Obj', ascending=False)
     
-    st.sidebar.title("🧬 SerGene Intelligence")
-    st.sidebar.button("🔄 Reset All System Filters", on_click=reset_all_filters_callback, use_container_width=True)
-    st.sidebar.markdown("---")
-
-    st.sidebar.subheader("📅 Select Timeframe")
-    min_db = df_master['Date_Obj'].min()
-    max_db = df_master['Date_Obj'].max()
-    date_sel = st.sidebar.date_input("Date Range", value=(min_db, max_db), min_value=min_db, max_value=max(max_db, datetime.now().date()))
-    st.sidebar.divider()
-
+    # 🎨 🛠️ BRANDING INJECTION MATRIX (TOP LEFT SIDEBAR)
+    # Checks for the image relatively on GitHub first, falls back to your local path to guarantee zero crashes.
+    cloud_logo_path = "SerGene_LogoFinal.png"
+    local_logo_path = r"C:\Users\sserv\Documents\PythonProjects\bigquery-for-ma\SerGene_LogoFinal.png"
+    
+    if os.path.exists(cloud_logo_path):
+        st.sidebar.image(cloud_logo_path, use_container_width=True)
+    elif os.path.exists(local_logo_path):
+        st.sidebar.image(local_logo_path, use_container_width=True)
+    else:
+        # Subtle clean margin spacer if logo files are compiling in background
+        st.sidebar.write("")
+    
+    # Client Access expanded layer
     if "download_count" not in st.session_state: st.session_state["download_count"] = 0
     if "is_authenticated" not in st.session_state: st.session_state["is_authenticated"] = False
     if "active_client_tag" not in st.session_state: st.session_state["active_client_tag"] = "Guest"
@@ -382,28 +398,60 @@ try:
 
     is_authenticated = st.session_state["is_authenticated"]
     client_tag = st.session_state["active_client_tag"]
+    
+    st.sidebar.button("🔄 Reset All System Filters", on_click=reset_all_filters_callback, use_container_width=True)
+    st.sidebar.markdown("---")
+
+    # Timeframe Selector
+    st.sidebar.subheader("Select Timeframe")
+    min_db = df_master['Date_Obj'].min()
+    max_db = df_master['Date_Obj'].max()
+    date_sel = st.sidebar.date_input("Date Range", value=(min_db, max_db), min_value=min_db, max_value=max(max_db, datetime.now().date()))
     st.sidebar.divider()
 
+    # Search Everything (Deep Scan)
+    st.sidebar.subheader("Search Everything (Deep Scan)")
+    search_term = st.sidebar.text_input("", key="sidebar_search", label_visibility="collapsed")
+    st.sidebar.divider()
+
+    # Modality Class
+    st.sidebar.subheader("Modality Class")
     existing_parents = df_master['ParentModality'].unique().tolist()
     sorted_parents_options = [m for m in MODALITY_ORDER if m in existing_parents] + [m for m in existing_parents if m not in MODALITY_ORDER]
-    sel_parents = st.sidebar.multiselect("Modality Class", sorted_parents_options, key="sidebar_parents")
+    sel_parents = st.sidebar.multiselect("", sorted_parents_options, key="sidebar_parents", label_visibility="collapsed")
+    st.sidebar.divider()
     
+    # Platforms & Delivery
+    st.sidebar.subheader("Platforms & Delivery")
     all_platforms = list(set([p for sub in df_master['Platforms'] for p in sub]))
     sorted_platform_options = [p for p in PLATFORM_ORDER if p in all_platforms] + [p for p in all_platforms if p not in PLATFORM_ORDER]
-    sel_platforms = st.sidebar.multiselect("Platforms & Delivery", sorted_platform_options, key="sidebar_platforms")
+    sel_platforms = st.sidebar.multiselect("", sorted_platform_options, key="sidebar_platforms", label_visibility="collapsed")
+    st.sidebar.divider()
 
-    sel_cells = st.sidebar.multiselect("Cell Types", CELL_THERAPY_TAGS, key="sidebar_cells")
-    sel_tas = st.sidebar.multiselect("Therapeutic Area", sorted(df_master['TA'].unique().tolist()), key="sidebar_tas")
-    sel_stages = st.sidebar.multiselect("Development Stage", sorted(df_master['Stage'].unique().tolist()), key="sidebar_stages")
-    search_term = st.sidebar.text_input("🔍 Search Everything (Deep Scan)", key="sidebar_search")
+    # Cell Types
+    st.sidebar.subheader("Cell Types")
+    sel_cells = st.sidebar.multiselect("", CELL_THERAPY_TAGS, key="sidebar_cells", label_visibility="collapsed")
+    st.sidebar.divider()
+    
+    # Therapeutic Area
+    st.sidebar.subheader("Therapeutic Area")
+    sel_tas = st.sidebar.multiselect("", sorted(df_master['TA'].unique().tolist()), key="sidebar_tas", label_visibility="collapsed")
+    st.sidebar.divider()
+    
+    # Development Stage
+    st.sidebar.subheader("Development Stage")
+    sel_stages = st.sidebar.multiselect("", sorted(df_master['Stage'].unique().tolist()), key="sidebar_stages", label_visibility="collapsed")
 
     if is_authenticated and client_tag == "SPIROS-VIP":
         st.sidebar.markdown("---")
-        st.sidebar.subheader("🛡️ System Administration")
+        st.sidebar.subheader("System Administration")
         if os.path.exists("sergene_audit_log.csv"):
             with open("sergene_audit_log.csv", "rb") as f:
                 st.sidebar.download_button(label="📥 Download Master Audit Logs", data=f, file_name="Master_Security_Audit_Log.csv", mime="text/csv", key="admin_audit_log_download_btn")
 
+    # ==========================================
+    # 5.5 FILTER PROCESSING & DIRECTORY INDEXES
+    # ==========================================
     stats_df = df_master.copy()
     if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
         stats_df = stats_df[(stats_df['Date_Obj'] >= date_sel[0]) & (stats_df['Date_Obj'] <= date_sel[1])]
@@ -414,19 +462,26 @@ try:
     if len(sel_stages) > 0: stats_df = stats_df[stats_df['Stage'].isin(sel_stages)]
     if search_term: stats_df = stats_df[stats_df['SearchBlob'].str.contains(search_term.lower(), na=False)]
 
-    # ==========================================
-    # 5.5 TOP-LEVEL NETWORK DIRECTORY & FILTERS
-    # ==========================================
+    # 👑 NEW BRANDING HEADER FOR THE RIGHT PANEL (ABS TOP MAIN SCREEN)
+    st.title("SerGene Intelligence Portal")
+    
+    # 📝 HIGH-LEVEL USER NAVIGATION INSTRUCTIONS
+    st.markdown("""
+        <div style="background-color: #ffffff; padding: 1.5rem; border-radius: 0.75rem; border: 1px solid #e2e8f0; margin-bottom: 1.5rem;">
+            <p style="margin-top: 0; font-weight: 700; color: #065f46; font-size: 1.1rem;">Welcome to SerGene Strategic Intelligence</p>
+            <p style="font-size: 0.9rem; color: #475569; margin-bottom: 0.75rem;"><strong>The Control Center (Left Panel):</strong> Use this space to curate your workspace. Adjust target timeframes, apply structural filters, or use the <strong>Deep Scan</strong> engine to instantly isolate specific asset targets, companies, or venture capital investors.</p>
+            <p style="font-size: 0.9rem; color: #475569; margin-bottom: 0;"><strong>The Intelligence Stream (Right Panel):</strong> View live calculated market metrics, evaluate early-stage pipelines within the <em>Financial Matrix</em>, track macroeconomic deal momentum across the <em>Interactive Timeline</em>, or explore deep qualitative records inside the <em>Live Transaction Feed</em>.</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    st.divider()
+
     funding_vcs = load_funding_vcs()
     funding_vcs_lower = {vc.lower() for vc in funding_vcs}
-
     all_individual_entities = extract_individual_companies(df_master)
-
     regular_companies = [c for c in all_individual_entities if c.lower() not in funding_vcs_lower]
     available_vcs = [c for c in all_individual_entities if c.lower() in funding_vcs_lower]
 
-    st.markdown("### 🏢 Network Directory")
-    
     col_dir_title, col_dir_reset = st.columns([4, 1])
     with col_dir_reset:
         st.button("🔄 Reset Directory Filters", on_click=reset_all_filters_callback, key="inline_directory_reset_btn", use_container_width=True)
@@ -441,13 +496,9 @@ try:
             horizontal=True,
             key="directory_alphabet_selector"
         )
-        
-        if selected_letter == "All":
-            dropdown_companies = regular_companies
-        elif selected_letter == "0-9":
-            dropdown_companies = [c for c in regular_companies if c and c[0].isdigit()]
-        else:
-            dropdown_companies = [c for c in regular_companies if c and c.upper().startswith(selected_letter)]
+        if selected_letter == "All": dropdown_companies = regular_companies
+        elif selected_letter == "0-9": dropdown_companies = [c for c in regular_companies if c and c[0].isdigit()]
+        else: dropdown_companies = [c for c in regular_companies if c and c.upper().startswith(selected_letter)]
             
         selected_company = st.selectbox(
             f"Select a Company ({len(dropdown_companies)} matched):",
@@ -466,21 +517,20 @@ try:
     def is_entity_in_cell(cell_val, target_name):
         if pd.isna(cell_val):
             return False
-        return target_name.lower() in [p.strip().lower() for p in str(cell_val).split(',')]
+        return str(target_name).lower().strip() in str(cell_val).lower()
 
-    if "selected_company_dropdown" in st.session_state and st.session_state["selected_company_dropdown"] != "None":
-        current_comp = st.session_state["selected_company_dropdown"]
-        stats_df = stats_df[
-            stats_df['PartnerA'].apply(lambda x: is_entity_in_cell(x, current_comp)) |
-            stats_df['PartnerB'].apply(lambda x: is_entity_in_cell(x, current_comp))
-        ]
+    current_comp = st.session_state.get("selected_company_dropdown", "None")
+    current_vc = st.session_state.get("selected_vc_dropdown", "None")
 
-    if "selected_vc_dropdown" in st.session_state and st.session_state["selected_vc_dropdown"] != "None":
-        current_vc = st.session_state["selected_vc_dropdown"]
+    if current_comp != "None" and current_vc != "None":
         stats_df = stats_df[
-            stats_df['PartnerA'].apply(lambda x: is_entity_in_cell(x, current_vc)) |
-            stats_df['PartnerB'].apply(lambda x: is_entity_in_cell(x, current_vc))
+            stats_df['PartnerA'].apply(lambda x: current_comp.lower() in str(x).lower() or current_vc.lower() in str(x).lower()) |
+            stats_df['PartnerB'].apply(lambda x: current_comp.lower() in str(x).lower() or current_vc.lower() in str(x).lower())
         ]
+    elif current_comp != "None":
+        stats_df = stats_df[stats_df['PartnerA'].apply(lambda x: current_comp.lower() in str(x).lower()) | stats_df['PartnerB'].apply(lambda x: current_comp.lower() in str(x).lower())]
+    elif current_vc != "None":
+        stats_df = stats_df[stats_df['PartnerA'].apply(lambda x: current_vc.lower() in str(x).lower()) | stats_df['PartnerB'].apply(lambda x: current_vc.lower() in str(x).lower())]
 
     GLOBAL_PREVIEW_LIMIT = 5
     visible_df = stats_df if is_authenticated else stats_df.head(GLOBAL_PREVIEW_LIMIT)
@@ -488,7 +538,7 @@ try:
     # ==========================================
     # 6. DASHBOARD METRICS
     # ==========================================
-    st.title("Strategic Deal Intelligence Stream")
+    st.subheader("Strategic Deal Intelligence Stream")
     
     current_filtered_entities = extract_individual_companies(stats_df)
     unique_companies_count = len(current_filtered_entities)
@@ -515,7 +565,7 @@ try:
     # Row 2: Segmented Financial Volume & Cleaned Risk Ratios
     row2_m1, row2_m2, row2_m3, row2_m4 = st.columns(4)
     row2_m1.metric("Partnership Volume", f"${partnership_pool['TotalValueM'].sum()/1000:.2f}B")
-    row2_m2.metric("Partnership Avg. Upfront Ratio", f"{macro_p_ratio:.1%}", help="Calculated exclusively using structured biobucks deals (excluding flat/undisclosed milestones).")
+    row2_m2.metric("Partnership Avg. Upfront Ratio", f"{macro_p_ratio:.1%}", help="Calculated exclusively using structured biobucks deals.")
     row2_m3.metric("M&A Asset Volume", f"${mna_pool['TotalValueM'].sum()/1000:.2f}B")
     row2_m4.metric("M&A Avg. Upfront Ratio", f"{macro_m_ratio:.1%}", help="Calculated using structured earnout acquisitions.")
     
@@ -524,7 +574,7 @@ try:
     # ==========================================
     # 6.1 PREMIUM FINANCIAL METRICS ENGINE (THE STRUCTURAL MATRIX)
     # ==========================================
-    st.subheader("📊 Strategic Pipeline Financial Matrix")
+    st.subheader("Strategic Pipeline Financial Matrix")
     
     if is_authenticated:
         matrix_records = []
@@ -560,11 +610,11 @@ try:
 
             matrix_records.append({
                 "Clinical Development Stage": stage_name,
-                "Partnership Count": l_count,
+                "Partnership Count": str(l_count),
                 "Avg Licensing Upfront": avg_l_upfront,
                 "Avg Licensing Total Value": avg_l_total,
                 "Avg Licensing Upfront Ratio": l_ratio_pct,
-                "M&A Count": m_count,
+                "M&A Count": str(m_count),
                 "Avg M&A Total Value": avg_mna_total,
                 "Avg M&A Upfront Ratio": m_ratio_pct
             })
@@ -574,11 +624,11 @@ try:
             matrix_df, 
             column_config={
                 "Clinical Development Stage": st.column_config.TextColumn(help="Standardized asset progression stage."),
-                "Partnership Count": st.column_config.NumberColumn(format="%d"),
+                "Partnership Count": st.column_config.TextColumn(),
                 "Avg Licensing Upfront": st.column_config.TextColumn(),
                 "Avg Licensing Total Value": st.column_config.TextColumn(),
                 "Avg Licensing Upfront Ratio": st.column_config.TextColumn(help="True ratio calculated excluding 100% upfront milestones anomalies."),
-                "M&A Count": st.column_config.NumberColumn(format="%d"),
+                "M&A Count": st.column_config.TextColumn(),
                 "Avg M&A Total Value": st.column_config.TextColumn(),
                 "Avg M&A Upfront Ratio": st.column_config.TextColumn(help="True ratio calculated excluding standard all-cash clean acquisitions."),
             },
@@ -596,6 +646,8 @@ try:
     if not stats_df.empty:
         timeline_df = stats_df.copy()
         if not timeline_df.empty:
+            st.subheader("Interactive Deal Intelligence Master Timeline")
+            
             current_available_order = [o for o in MODALITY_ORDER if o in timeline_df['ParentModality'].unique()]
             timeline_df = timeline_df.sort_values(['Date_Obj', 'ParentModality'], ascending=[True, True])
             timeline_df['cum_idx'] = timeline_df.groupby('Date_Obj').cumcount()
@@ -603,7 +655,6 @@ try:
             timeline_df['stack_y'] = (timeline_df['cum_idx'] % 6) + 1
             timeline_df['Plot_DateTime'] = pd.to_datetime(timeline_df['Date_Obj']) + timeline_df['col_shift'] * pd.Timedelta(hours=5)
 
-            # Normalizes dot scaling weight smoothly using clipped logarithms referenced in image_137f62.png
             timeline_df['PlotSize'] = timeline_df['TotalValueM'].apply(lambda x: np.log1p(min(float(x), 1000.0)) + 1.0 if float(x) > 0 else 1.0)
 
             hover_meta_list = []
@@ -611,10 +662,8 @@ try:
                 if not is_authenticated: text_html = "" 
                 else:
                     clean_insight = str(r['Insight']).strip()
-                    if clean_insight in ["", "nan", "NaN", "N/A"]:
-                        wrapped_insight = "Undisclosed"
-                    else:
-                        wrapped_insight = "<br>".join(textwrap.wrap(html.escape(clean_insight), width=70))
+                    if clean_insight in ["", "nan", "NaN", "N/A"]: wrapped_insight = "Undisclosed"
+                    else: wrapped_insight = "<br>".join(textwrap.wrap(html.escape(clean_insight), width=70))
                     
                     clean_value = str(r['DisplayValue']).strip()
                     display_val = html.escape(r['DisplayValue']) if clean_value not in ["", "nan", "NaN", "N/A"] else "Undisclosed"
@@ -629,7 +678,7 @@ try:
                         f"<b style='color:#d97706;'>VALUE:</b> {display_val}<br>"
                         f"<b style='color:#7c3aed;'>CLASS:</b> {html.escape(r['ParentModality'])}<br>"
                         f"<b style='color:#0284c7;'>TARGET:</b> {target_dis}<br><br>"
-                        f"<b style='color:#dc2626;'>STRATEGIC INSIGHT:</b><br><i style='color:#334155;'>{wrapped_insight}</i></span>"
+                        f"<b style='color:#dc2626;'>💡 STRATEGIC INSIGHT:</b><br><i style='color:#334155;'>{wrapped_insight}</i></span>"
                     )
                 hover_meta_list.append(text_html)
                 
@@ -651,16 +700,15 @@ try:
                 fig_timeline.update_traces(marker=dict(opacity=0.85, line=dict(width=1.5, color='#ffffff')), hoverinfo="skip", hovertemplate=None)
             
             fig_timeline.update_layout(
-                title=dict(text="🧬 Interactive Deal Intelligence Master Timeline", font=dict(size=16, color='#1e293b', weight='bold')),
                 plot_bgcolor='#ffffff', paper_bgcolor='rgba(0,0,0,0)', hovermode='closest', 
                 hoverlabel=dict(align="left"), 
                 xaxis=dict(title=None, showgrid=True, gridcolor='#f1f5f9', type='date', rangeslider=dict(visible=True, thickness=0.04)),
-                yaxis=dict(visible=False, showgrid=False, range=[0.3, 6.7]), legend=dict(title=dict(text="Modality Class"), orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5), margin=dict(l=10, r=10, t=50, b=80), height=390  
+                yaxis=dict(visible=False, showgrid=False, range=[0.3, 6.7]), legend=dict(title=dict(text="Modality Class"), orientation="h", yanchor="top", y=-0.35, xanchor="center", x=0.5), margin=dict(l=10, r=10, t=10, b=80), height=390  
             )
             st.plotly_chart(fig_timeline, use_container_width=True, config={'displayModeBar': True, 'scrollZoom': True})
     st.divider()
 
-    with st.expander("📈 Market Trends & Competitive Landscape", expanded=False):
+    with st.expander("Market Trends & Competitive Landscape", expanded=False):
         c1, c2, c3 = st.columns(3)
         with c1: st.bar_chart(stats_df['ParentModality'].value_counts(), color="#3b82f6")
         with c2: st.bar_chart(stats_df['TA'].value_counts(), color="#10b981")
@@ -729,7 +777,7 @@ try:
                     log_audit_event(client_tag, "CSV Export Executed", f"Extracted {len(export_df)} items.")
             else:
                 st.download_button(label=f"📥 Download Preview Data Extract ({len(export_df)} Deals CSV)", data=csv_payload, file_name=f"SerGene_Preview_{filename_stamp}.csv", mime="text/csv", key="cloud_preview_download_button")
-    st.divider()
+    st.sidebar.markdown("---")
 
     # ==========================================
     # 7. DEAL CARDS DISPLAY
